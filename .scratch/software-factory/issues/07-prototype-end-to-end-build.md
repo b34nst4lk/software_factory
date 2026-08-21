@@ -1,7 +1,7 @@
 # 07 — Prototype end-to-end build + smoke test
 
 Type: prototype
-Status: open
+Status: claimed
 Blocked by: 01, 02, 03, 04, 05, 06
 
 ## Question
