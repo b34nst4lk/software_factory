@@ -1,7 +1,7 @@
 # 09 — Orchestrator script build (07c)
 
 Type: task
-Status: open
+Status: done
 Blocked by: 05, 06, 07a (HITL prereqs done), 07b (factory-to-tickets skill built)
 Realizes: the 05 (orchestrator contract) + 06 (feedback & escalation protocol) decisions.
 Umbrella: ticket 07 (prototype end-to-end build + smoke test). This is its 07c sub-step.
@@ -134,4 +134,42 @@ factory/orchestrator/
 - Smoke-test input decision: [08-smoke-greet-decision.md](08-smoke-greet-decision.md)
 
 ## Answer
-<!-- filled when 07c is built and its acceptance checks pass -->
+
+Built 2026-08-21. The deterministic orchestrator (python3, no LLM) lives in
+`factory/orchestrator/` per the ticket's module layout, plus a `gitops.py` seam
+(worktree lifecycle + per-cycle commit + push/archive) isolated so the state
+machine can be rewritten (05 Q1 Gleam note) without touching the git adapter.
+
+Acceptance — all green in `--mock` (the live smoke is 07d):
+
+- Unit tests (131 total) pass for frontmatter parse, the **guard util** (value-only +
+  append-only; rejects key-add / body-edit / run.log-deletion; allows value-only +
+  new-file creation + append), topo-sort (incl. cycle→error, missing-dep error),
+  verdict parse+route (PASS→done / FAIL→retry / BLOCKED→escalate /
+  unparseable→human-gate), escalation ticket authoring + `## Answer` re-injection,
+  PR merge-gate (APPROVED+clean→merge; CHANGES_REQUESTED→route; COMMENTED→advisory),
+  dismissal routing (addressed|dismissed), and failover retry/backoff/pause.
+- `herdr.py`, `pr.py`, `gitops.py` are thin subprocess wrappers with a `--mock` mode
+  (`MockHerdr` / `MockGh` / `MockGitOps`) so the cycle + PR loops run without live
+  herdr/panes/gh/git.
+- Integration test drives fixture impl units through PASS, FAIL→retry→PASS, and
+  BLOCKED→escalate→(resolve ticket file)→resume→PASS, plus a green PR-stage merge and
+  two-unit pipelining, all in `--mock`.
+- Husky `pre-commit` installed (`.husky/pre-commit` + `core.hooksPath=.husky/_`)
+  running guard + ruff + black + pytest + mypy + coverage. Verified live that it
+  **rejects** a key-add commit and a run.log-deletion commit and **accepts** value-only,
+  append, and docs commits.
+- `ruff check`, `black --check`, `pytest`, `mypy` (strict), and `coverage
+  --fail-under=90` (93%) all pass on the orchestrator package — dogfooding the
+  formalize-when-discovered pre-commit on the orchestrator's own code.
+- `README.md` documents run, invariants, the 6 gates, the stdin gates, `--mock`, and
+  the deferred live pieces.
+
+Commits are per logical unit on `main` (guard, verdict, tickets, herdr+pr,
+config+prompts, escalate, cycle, failover, gitops, run+cli, husky, README). No push,
+no PR (07d's job). Invariants held: cycle counting + 5-cycle backstop; cross-model
+binding; verdict routing with never-assume; git-as-state integrity (per-cycle commit
++ value-only frontmatter + append-only run.log via the guard); topo-sort + worktree
+lifecycle + pipelining; park-not-halt with file-driven resume and verbatim
+re-injection; every PR push is 6-gate-verifier-green; 3-retry failover then
+whole-orchestrator pause.
