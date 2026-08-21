@@ -48,13 +48,13 @@ class Config:
     def impl_dir(self) -> str:
         import os
 
-        return os.path.join(".scratch", self.effort, "impl")
+        return os.path.join(self.repo_path, ".scratch", self.effort, "impl")
 
     @property
     def issues_dir(self) -> str:
         import os
 
-        return os.path.join(".scratch", self.effort, "issues")
+        return os.path.join(self.repo_path, ".scratch", self.effort, "issues")
 
 
 def default(repo_path: str, effort: str, impl_glob: str) -> Config:

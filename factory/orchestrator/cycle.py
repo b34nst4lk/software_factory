@@ -61,9 +61,14 @@ class CycleResult:
 
 
 class _CfgLike(Protocol):
-    cycle_cap: int
-    prompt_timeout_ms: int
-    read_lines: int
+    @property
+    def cycle_cap(self) -> int: ...
+
+    @property
+    def prompt_timeout_ms(self) -> int: ...
+
+    @property
+    def read_lines(self) -> int: ...
 
 
 def run_cycle(
@@ -78,10 +83,12 @@ def run_cycle(
     issues_dir: str,
     next_esc_number: int = 1,
     resolution: str | None = None,
+    cap_override: int | None = None,
 ) -> CycleResult:
+    cap = cap_override if cap_override is not None else config.cycle_cap
     prior_feedback: str | None = None
     cycle_no = 0
-    while cycle_no < config.cycle_cap:
+    while cycle_no < cap:
         cycle_no += 1
         # 1. implementer
         impl_prompt = prompts.implementer_prompt(

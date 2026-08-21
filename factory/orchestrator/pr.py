@@ -145,9 +145,14 @@ def parse_dismissals(text: str) -> list[DismissalRoute]:
 
 
 class MockGh:
-    def __init__(self, reviews_fixture: list[dict[str, str]] | None = None) -> None:
+    def __init__(
+        self,
+        reviews_fixture: list[dict[str, str]] | None = None,
+        reviews_queue: list[list[dict[str, str]]] | None = None,
+    ) -> None:
         self._next = 0
         self.reviews_fixture = reviews_fixture or []
+        self.reviews_queue = list(reviews_queue) if reviews_queue else []
         self.created: list[tuple[int, str, str, str, str, str]] = []
         self.merged: list[int] = []
         self.comments: list[tuple[int, str]] = []
@@ -158,6 +163,8 @@ class MockGh:
         return self._next
 
     def api_reviews(self, repo: str, pr_num: int) -> list[dict[str, str]]:
+        if self.reviews_queue:
+            return self.reviews_queue.pop(0)
         return list(self.reviews_fixture)
 
     def pr_merge(self, pr_num: int, *, squash: bool) -> None:
