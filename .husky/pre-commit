@@ -1,24 +1,26 @@
 #!/usr/bin/env bash
 # Husky pre-commit — the software-factory's formalize-when-discovered gate (05 Q2 + 06 Q7).
 #
-# Runs on every commit, repo-wide (and active in worktrees — they share the repo's
-# hooks via the commondir). Two parts:
-#   1. guard util — git-as-state integrity: impl/*.md frontmatter changes are value-only
-#      (key set unchanged, prose body unchanged) and run.log is append-only (no `-`
-#      lines). A key-add, a body edit, or a run.log deletion is REJECTED.
-#   2. python toolchain on the orchestrator package — ruff + black + pytest + mypy +
-#      coverage (threshold-enforced). Dogfooded on the orchestrator's own code.
+# Runs on every commit, repo-wide AND inside impl/NN worktrees (worktrees share the
+# repo's hooks via the commondir). The venv lives in the MAIN working tree (it is
+# gitignored, so it is NOT checked out into worktrees), so resolve it via the common
+# git dir. The guard util reads staged files in THIS worktree (cwd here); the python
+# toolchain runs on the worktree's checked-out orchestrator package using that venv.
+#
+#   1. guard util — value-only frontmatter + append-only run.log (git-as-state).
+#   2. ruff + black + pytest + mypy + coverage (threshold) on the orchestrator package.
 set -euo pipefail
 
-REPO="$(git rev-parse --show-toplevel)"
-PY="$REPO/.venv/bin/python"
-ORCH="$REPO/factory/orchestrator"
+WT="$(git rev-parse --show-toplevel)"
+MAIN="$(cd "$(git -C "$WT" rev-parse --git-common-dir)/.." && pwd)"
+PY="$MAIN/.venv/bin/python"
+ORCH_SRC="$MAIN/factory/orchestrator"
 
-# 1. guard util (operates on staged files; no-arg -> reads `git diff --cached`).
-"$PY" "$ORCH/guard.py"
+# 1. guard util (operates on staged files in THIS worktree; no-arg -> `git diff --cached`).
+"$PY" "$ORCH_SRC/guard.py"
 
 # 2. python toolchain (formalize-when-discovered: programmatic checks live in pre-commit).
-cd "$ORCH"
+cd "$WT/factory/orchestrator"
 "$PY" -m ruff check .
 "$PY" -m black --check .
 "$PY" -m coverage run -m pytest tests/ -q
