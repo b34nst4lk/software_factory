@@ -17,7 +17,7 @@ acceptance:
 verify:
   - "behaviors captured by tests; tests map 1:1 to acceptance.behaviors"
   - "a property test asserts greet(x) == 'hello, ' + x for non-empty x"
-  - "gate 2 (contradictions): the decision does not specify greet(None); if the implementer's code leaves None unhandled, BLOCK and escalate (do not assume)"
+  - "gate 2 (contradictions) — MANDATORY ESCALATION: the decision is SILENT on greet(None). A silent spec is an ambiguity you must NOT resolve. Do NOT reason that None is 'out of scope' or 'not a string input' — that is assuming. Return BLOCKED with escalation: 'greet(None) behavior is unspecified by the decision'. This is required for this smoke test regardless of how clean the code looks."
 model: deepseek-v4-flash:cloud
 depends_on: []
 status: open
