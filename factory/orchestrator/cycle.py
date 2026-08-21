@@ -23,8 +23,11 @@ binding the implementer pane to ``config.implementer_model`` and the verifier pa
 from __future__ import annotations
 
 import enum
+import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Protocol
 
 import escalate
@@ -69,6 +72,27 @@ class _CfgLike(Protocol):
 
     @property
     def read_lines(self) -> int: ...
+
+
+_VERDICT_FILE_RE = re.compile(r"VERDICT_FILE:\s*(\S+)", re.MULTILINE)
+
+
+def _parse_verdict(ver_out: str, worktree: str) -> verdict.Verdict:
+    """Parse the verifier verdict, preferring a file the verifier wrote to disk.
+
+    Pane line-wrapping corrupts inline fenced YAML (the live smoke hit this), so the
+    verifier is asked to write `.verdict.yaml` and reply `VERDICT_FILE: <path>`. We
+    read that file (resolved against the worktree) as raw YAML; fall back to the pane.
+    """
+    m = _VERDICT_FILE_RE.search(ver_out)
+    if m:
+        path = m.group(1)
+        full = path if os.path.isabs(path) else os.path.join(worktree, path)
+        try:
+            return verdict.parse_verdict_yaml(Path(full).read_text())
+        except OSError:
+            pass  # fall through to pane parsing
+    return verdict.parse_verdict(ver_out)
 
 
 def run_cycle(
@@ -123,8 +147,9 @@ def run_cycle(
         )
         ver_out = herdr.agent_read(panes.ver_name, config.read_lines)
 
-        # 3. parse + route
-        v = verdict.parse_verdict(ver_out)
+        # 3. parse + route — prefer the verdict FILE the verifier wrote (pane
+        #    wrapping corrupts inline YAML); fall back to the pane's fenced block.
+        v = _parse_verdict(ver_out, worktree)
         action = verdict.route(v)
         overall_str = v.overall.value
 

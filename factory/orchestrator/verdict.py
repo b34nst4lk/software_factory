@@ -77,16 +77,9 @@ def _gate_statuses(gates: list[dict[str, object]]) -> list[tuple[str, str]]:
     return out
 
 
-def parse_verdict(text: str) -> Verdict:
-    block = extract_verdict_block(text)
-    if block is None:
-        return Verdict(Overall.UNPARSEABLE, raw=text)
-    try:
-        data = yaml.safe_load(block)
-    except yaml.YAMLError:
-        return Verdict(Overall.UNPARSEABLE, raw=text)
+def _route_data(data: object, raw: str | None) -> Verdict:
     if not isinstance(data, dict):
-        return Verdict(Overall.UNPARSEABLE, raw=text)
+        return Verdict(Overall.UNPARSEABLE, raw=raw)
 
     gates = data.get("gates") or []
     statuses = _gate_statuses(gates if isinstance(gates, list) else [])
@@ -117,9 +110,37 @@ def parse_verdict(text: str) -> Verdict:
         elif declared == "BLOCKED":
             overall = Overall.BLOCKED
         else:
-            return Verdict(Overall.UNPARSEABLE, raw=text)
+            return Verdict(Overall.UNPARSEABLE, raw=raw)
 
     return Verdict(overall, feedbacks=feedbacks, escalations=escalations, raw=None)
+
+
+def parse_verdict(text: str) -> Verdict:
+    """Parse a verdict from a pane's text (fenced YAML block)."""
+    block = extract_verdict_block(text)
+    if block is None:
+        return Verdict(Overall.UNPARSEABLE, raw=text)
+    try:
+        data = yaml.safe_load(block)
+    except yaml.YAMLError:
+        return Verdict(Overall.UNPARSEABLE, raw=text)
+    return _route_data(data, raw=text)
+
+
+def parse_verdict_yaml(yaml_text: str) -> Verdict:
+    """Parse a verdict from a raw YAML file (no fence) the verifier wrote to disk.
+
+    Tolerates a leading `````yaml`` fence if present (strips it) so the same file
+    content works whether the verifier fenced it or not.
+    """
+    block = extract_verdict_block(yaml_text)
+    if block is not None:
+        yaml_text = block
+    try:
+        data = yaml.safe_load(yaml_text)
+    except yaml.YAMLError:
+        return Verdict(Overall.UNPARSEABLE, raw=yaml_text)
+    return _route_data(data, raw=yaml_text)
 
 
 def route(verdict_obj: Verdict) -> Action:

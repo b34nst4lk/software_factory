@@ -196,3 +196,35 @@ def test_cross_model_binding_every_cycle(tmp_path):
     assert cfg.implementer_model != cfg.verifier_model
     assert cfg.implementer_model.startswith("deepseek")
     assert cfg.verifier_model.startswith("qwen")
+
+
+def test_verdict_file_takes_precedence_over_pane_text(tmp_path):
+    unit = make_unit(tmp_path)
+    m = herdr.MockHerdr()
+    worktree = str(tmp_path / "wt")
+    Path(worktree).mkdir()
+    issues = tmp_path / "issues"
+    issues.mkdir()
+    # the verifier's pane text is unparseable (wrapping), but it wrote a clean file
+    m.feed_read("impl-01", "impl c1")
+    m.feed_read("ver-01", "garbled pane text\nVERDICT_FILE: .verdict.yaml")
+    (Path(worktree) / ".verdict.yaml").write_text(
+        "overall: PASS\ngates:\n  - gate: meets_requirement\n    status: PASS\n"
+    )
+    cfg = FakeConfig(cycle_cap=5)
+
+    def commit(uid, c, o, wt):
+        pass
+
+    result = cycle.run_cycle(
+        unit=unit,
+        config=cfg,
+        herdr=m,
+        worktree=worktree,
+        branch="impl-01",
+        panes=make_panes(),
+        commit=commit,
+        issues_dir=str(issues),
+        next_esc_number=1,
+    )
+    assert result.outcome is cycle.CycleOutcome.DONE

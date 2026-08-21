@@ -81,6 +81,13 @@ def verifier_prompt(
     parts.append('    feedback: "<concrete fix>"   # on FAIL')
     parts.append('    escalation: "<ambiguity>"    # on BLOCKED')
     parts.append("```")
+    parts.append(
+        "CRITICAL — write the verdict to a file so the orchestrator reads exact YAML "
+        "(pane line-wrapping corrupts inline YAML). Use the `!` bash tool to write "
+        "`.verdict.yaml` in the worktree, then end your reply with one line "
+        "`VERDICT_FILE: .verdict.yaml`. The file must be valid YAML with `overall:` "
+        "and a `gates:` list (no fence, no wrapping)."
+    )
     parts.append("--- implementer output ---")
     parts.append(implementer_output)
     return "\n".join(parts) + "\n"

@@ -167,3 +167,24 @@ def test_unparseable_verdict_carries_raw_text_for_the_human_gate():
 )
 def test_overall_classification(block, expected):
     assert verdict.parse_verdict(block).overall is expected
+
+
+# ---- parse_verdict_yaml (file path; pane wrapping workaround) ----
+
+
+def test_parse_verdict_yaml_handles_raw_yaml_file():
+    raw = "overall: BLOCKED\ngates:\n  - gate: contradictions\n    status: BLOCKED\n    escalation: greet(None) unspecified\n"
+    v = verdict.parse_verdict_yaml(raw)
+    assert v.overall is verdict.Overall.BLOCKED
+    assert v.escalations == ["greet(None) unspecified"]
+
+
+def test_parse_verdict_yaml_strips_a_leading_fence():
+    raw = "```yaml\noverall: PASS\ngates:\n  - gate: meets_requirement\n    status: PASS\n```\n"
+    v = verdict.parse_verdict_yaml(raw)
+    assert v.overall is verdict.Overall.PASS
+
+
+def test_parse_verdict_yaml_malformed_is_unparseable():
+    v = verdict.parse_verdict_yaml("overall: : : not yaml")
+    assert v.overall is verdict.Overall.UNPARSEABLE
