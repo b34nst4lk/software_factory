@@ -25,6 +25,7 @@ A working *prototype* of a software factory built on pi: **Wayfinder** (glm-5.2,
 
 - [03 — herdr + pi driver pattern](issues/03-herdr-pi-driver-pattern.md): drive pi workers via herdr Pattern A (agent start/prompt --wait/read); pi is a supported herdr kind with lifecycle hooks after `herdr integration install pi`; model binding via pi `--model`; herdr gives state, the script owns the cycle counter; pi RPC mode is a fallback. Findings: [research/03](research/03-herdr-pi-driver-pattern.md).
 - [02 — Wire the three models as pi custom providers](issues/02-model-provider-wiring.md): glm-5.2:cloud + deepseek-v4-flash:cloud already wired under one `ollama` provider; verifier = qwen3.5:cloud (Ollama-only choice; qwen3.6 not on Ollama cloud). One models.json entry to add at build time. Findings: [research/02](research/02-model-provider-wiring.md).
+- [01 — Repo bootstrap](issues/01-repo-bootstrap.md): git init `main` (commit `2f6b540`); AGENTS.md, CONTEXT.md glossary, `factory/` scaffold (orchestrator/ + skills/to-tickets/ placeholders), .gitignore. No decisions; pure setup.
 
 ## Not yet specified
 
