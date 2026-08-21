@@ -40,6 +40,7 @@ class Config:
     human_login: str = "human-reviewer"
     gh_repo: str = ""
     worktree_parent: str = ".."
+    herdr_session: str = ""  # herdr --session <name>; "" = default socket
 
     def with_overrides(self, **kw: object) -> Config:
         return replace(self, **{k: v for k, v in kw.items() if v is not None})  # type: ignore[arg-type]

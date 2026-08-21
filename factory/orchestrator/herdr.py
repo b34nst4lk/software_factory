@@ -63,12 +63,19 @@ def _default_runner(argv: list[str]) -> tuple[str, int]:
 class Herdr:
     """Thin subprocess driver of the herdr CLI (Pattern A)."""
 
-    def __init__(self, runner: Runner | None = None, herdr_bin: str = "herdr") -> None:
+    def __init__(
+        self,
+        runner: Runner | None = None,
+        herdr_bin: str = "herdr",
+        session: str = "",
+    ) -> None:
         self._run = runner or _default_runner
         self._bin = herdr_bin
+        self._session = session
 
     def _cmd(self, args: list[str]) -> tuple[str, int]:
-        return self._run([self._bin, *args])
+        prefix = [self._bin, "--session", self._session] if self._session else [self._bin]
+        return self._run([*prefix, *args])
 
     def workspace_create(self, cwd: str, label: str) -> str:
         out, _ = self._cmd(["workspace", "create", "--cwd", cwd, "--label", label, "--no-focus"])
@@ -171,5 +178,5 @@ class MockHerdr:
         return self._started[name][0]
 
 
-def make_herdr(*, mock: bool, **_kw: object) -> HerdrPort:
-    return MockHerdr() if mock else Herdr()
+def make_herdr(*, mock: bool, session: str = "", **_kw: object) -> HerdrPort:
+    return MockHerdr() if mock else Herdr(session=session)

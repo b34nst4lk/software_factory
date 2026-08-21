@@ -49,6 +49,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--gh-repo", default="", help="GitHub repo as O/R for the PR stage")
     p.add_argument("--worktree-parent", default=None, help="where to create impl/NN worktrees")
+    p.add_argument(
+        "--herdr-session", default="", help="herdr --session <name> (the headless server socket)"
+    )
     return p.parse_args(argv)
 
 
@@ -70,13 +73,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         pr_stage=(args.pr_stage == "on"),
         gh_repo=args.gh_repo,
         worktree_parent=args.worktree_parent or os.path.dirname(args.repo),
+        herdr_session=args.herdr_session,
     )
     paths = sorted(glob.glob(impl_glob))
     if not paths:
         print(f"no impl tickets matching {impl_glob}", file=sys.stderr)
         return 2
     units = tickets.parse_impl_files(paths)
-    hd = herdr.make_herdr(mock=cfg.mock)
+    hd = herdr.make_herdr(mock=cfg.mock, session=cfg.herdr_session)
     gh = pr_mod.make_gh(mock=cfg.mock)
     gops = gitops.make_gitops(mock=cfg.mock, repo=cfg.repo_path, base=cfg.repo_path)
     orch = run.Orchestrator(
