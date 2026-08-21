@@ -32,7 +32,11 @@ Resolved 2026-08-19. The `to-tickets` pi skill (runs on glm-5.2) contract:
    decision: <wayfinder ticket id/title>
    title: <one line>
    scope_files: [src/foo.ts, src/bar.ts]
-   acceptance: [criterion 1, criterion 2]
+   acceptance:                          # structured behaviors (06 amendment)
+     - story: "As a user, I can <action>"
+       behaviors:
+         - { behavior: "<normal behavior>", outcome: success }
+         - { behavior: "<edge behavior>",   outcome: failure }
    verify: [what the verifier checks]
    model: deepseek-v4-flash:cloud      # implementer binding
    depends_on: [impl-NN, impl-NN]
@@ -46,6 +50,8 @@ Resolved 2026-08-19. The `to-tickets` pi skill (runs on glm-5.2) contract:
 5. **Invocation — explicit `/to-tickets <decision>`**, run by the human or the Wayfinder session as its last step after closing a decision. Matches the stated flow `wayfinder → to-tickets → orchestrator` as a deliberate handoff. (Graduates the map's "to-tickets invocation trigger" fog.)
 
 **Schema amendment (from 05 grilling Q2-A, confirmed)**: to-tickets authors **all keys up front with default empty values** so the orchestrator's per-cycle mutations stay strictly value-only (no new keys added at runtime). The full frontmatter key set is therefore: `id, decision, title, scope_files, acceptance, verify, model, depends_on, status, cycle, last_verdict` — with `status: open`, `cycle: 0`, `last_verdict: ""` as the to-tickets-authored initials the orchestrator later mutates.
+
+**Schema amendment (from 06 grilling Q6, confirmed)**: `acceptance` is now **structured behaviors** — a list of `{story, behaviors: [{behavior, outcome: success|failure}]}` capturing the user stories/actions and their success/failure states. to-tickets authors it once (the key set is unchanged, so the guard util stays happy); the implementer writes behavior-driven + property/fuzz (hypothesis) tests mapping to these behaviors; the verifier's 6th gate checks behaviors-are-captured (fuzzing) and tests-map-to-behaviors.
 
 **Scope clarification (human)**: the factory is a **thin layer over the existing matt pocock skills** — do not rebuild Wayfinder/grilling/domain-modeling/tdd/code-review/prototype/etc. The only new parts are: the `to-tickets` skill, the deterministic orchestrator script, herdr setup, and the pi provider config (already mostly wired — 02). Existing skills are reused where they fit (e.g. `code-review` as the verifier's method, `tdd` for the implementer, `prototype` for cheap artifacts); how they're invoked by the orchestrator/verifier is a 05/06 design question.
 

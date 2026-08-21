@@ -33,6 +33,8 @@ Resolve by grilling; decision only.
 
 ## Answer
 
+> **06 amendments (supersede the 5-gate/pre-commit wording below)**: the verifier is now **6 gates** (added **gate 6 — behavior coverage**: behaviors-captured-via-fuzzing + tests-map-to-behaviors; tickets carry structured `acceptance` behaviors — see 04/06). The **pre-commit hook scope expanded**: in addition to the guard util + ruff/black + pytest, it runs **type checking (mypy/pyright)** and **coverage (coverage.py, threshold-enforced)** — per the **formalize-when-discovered** standing principle (programmatic checks live in pre-commit, not the LLM verifier). All "5-gate/all-5-pass" references below read as 6-gate/all-6-pass.
+
 Resolved 2026-08-19. The deterministic orchestrator (**python3**, ~150–250 lines, the thin spine) contract, by question:
 
 - **Q1 Language**: python3 (pyyaml + `subprocess`); state-machine seam isolated for a possible future Gleam rewrite if it grows into typed parallel panes.
@@ -41,7 +43,7 @@ Resolved 2026-08-19. The deterministic orchestrator (**python3**, ~150–250 lin
 - **Q4 Main loop**: glob impl → topo-sort by `depends_on` → worktree per unit → cycle loop (implementer ↔ verifier, strictly alternating) until done/stop/escalate. **Pipelined** across units (next starts at `done`; several `impl/NN` branches open for review). No intra-unit parallel.
 - **Q5 Human-surfacing**: herdr sidebar = live view (orchestrator pushes per-cycle facts as metadata `$summary` tokens); orchestrator stdout/stdin = **gates only** (`c`/`s`/`w`/`m`/`q`) + one-line queue print. No custom TUI.
 - **Orchestrator necessity**: reaffirmed the thin deterministic spine (option A over collapsing into the main-pi LLM) — it's the only component that can guarantee the invariants (cycle count, cross-model binding, verdict routing, git-state guard, topo/worktree/pipelining).
-- **Verifier = 5-gate checklist** (verifier behavior, formalized in 06): (1) meets requirement, (2) requirement contradictions/callouts → escalate, (3) over-engineering, (4) coding convention, (5) `/skill:code-review`. Per-gate verdict; all-5-pass → `done` → raise PR.
+- **Verifier = 6-gate checklist** (verifier behavior, formalized in 06): (1) meets requirement [behaviors], (2) requirement contradictions/callouts → escalate, (3) over-engineering, (4) coding convention, (5) `/skill:code-review`, (6) **behavior coverage** (fuzzing-capture + test↔behavior mapping). Per-gate verdict; all-6-pass → `done` → raise PR.
 - **Q6 Pre-merge = two-stage review**: in-pane 5-gate verifier (build-time) → PR → **Sourcery + human** (post-PR) → merge. Request-changes (Sourcery or human) routes back to implementer as another cycle (PR stage is a human-gated cycle loop mirroring Q3); **every PR push is 5-gate-verifier-green**. PR opened once at first all-5-gates-pass; only fix commits pushed after. Human approves on GitHub; orchestrator polls approval + Sourcery-clean → `gh pr merge --squash` → full-suite smoke on main → `git worktree remove`; branch tagged `archive/impl-NN`. Build prereqs: GitHub remote per repo + `gh` CLI auth + Sourcery GitHub App.
 - **Q7 Skills reuse**: explicit `/skill:name` in prompt templates — implementer `/skill:tdd`, verifier gate-5 `/skill:code-review`; `enableSkillCommands: true` for worker panes. Orchestrator stays skill/model-agnostic.
 
