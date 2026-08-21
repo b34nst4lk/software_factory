@@ -1,0 +1,70 @@
+[project]
+name = "sf-orchestrator"
+version = "0.1.0"
+description = "Deterministic (no-LLM) spine that drives implementer + verifier pi agents through herdr."
+requires-python = ">=3.11"
+dependencies = ["pyyaml>=6.0"]
+
+# Flat layout: the modules live directly in this directory (factory/orchestrator/).
+# Tests import them as top-level modules (e.g. `import guard`); pytest sets
+# pythonpath = ["."].  Not pip-installed; run in-place.
+
+# ---- ruff ----
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["fixtures", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "PIE", "RET"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+# ---- black ----
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+extend-exclude = "/(fixtures|\\.venv)/"
+
+# ---- pytest ----
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]
+
+# ---- coverage ----
+[tool.coverage.run]
+branch = true
+source = [
+  "config", "guard", "verdict", "tickets", "herdr", "pr", "prompts",
+  "cycle", "escalate", "failover", "run", "cli",
+]
+omit = ["tests/*", "fixtures/*"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+exclude_also = [
+  "if __name__ == .__main__.:",
+  "raise NotImplementedError",
+  "if TYPE_CHECKING:",
+]
+
+# ---- mypy ----
+[tool.mypy]
+python_version = "3.11"
+files = [
+  "config.py", "guard.py", "verdict.py", "tickets.py", "herdr.py", "pr.py",
+  "prompts.py", "cycle.py", "escalate.py", "failover.py", "run.py", "cli.py",
+]
+strict = true
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_optional = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+check_untyped_defs = true

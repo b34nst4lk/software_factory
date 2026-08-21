@@ -12,7 +12,20 @@ build/
 # Logs
 *.log
 logs/
+# run.log is tracked state (per-cycle append) — keep it despite *.log
+!run.log
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Python venv (orchestrator toolchain)
+.venv/
+__pycache__/
+*.pyc
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
