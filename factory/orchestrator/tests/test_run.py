@@ -82,7 +82,16 @@ def test_unparseable_verdict_gate_quit_cancels(tmp_path):
     units, cfg, m, gh, gops = setup(tmp_path)
     m.feed_read("impl-01", "c1")
     m.feed_read("ver-01", UNPARSEABLE_VERDICT)
-    orch = run.Orchestrator(config=cfg, herdr=m, gh=gh, gitops=gops, units=units, stdin=lambda: "q")
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=lambda: "q",
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
+    )
     assert orch.run() == {"impl-01": "cancelled"}
 
 
@@ -92,7 +101,16 @@ def test_unparseable_verdict_gate_continue_then_pass(tmp_path):
     m.feed_read("impl-01", "c2")
     m.feed_read("ver-01", UNPARSEABLE_VERDICT)
     m.feed_read("ver-01", PASS_VERDICT)
-    orch = run.Orchestrator(config=cfg, herdr=m, gh=gh, gitops=gops, units=units, stdin=lambda: "c")
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=lambda: "c",
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
+    )
     assert orch.run() == {"impl-01": "done"}
 
 
@@ -100,7 +118,16 @@ def test_unparseable_verdict_gate_escalate_parks(tmp_path):
     units, cfg, m, gh, gops = setup(tmp_path)
     m.feed_read("impl-01", "c1")
     m.feed_read("ver-01", UNPARSEABLE_VERDICT)
-    orch = run.Orchestrator(config=cfg, herdr=m, gh=gh, gitops=gops, units=units, stdin=lambda: "w")
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=lambda: "w",
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
+    )
     result = orch.run()
     assert result["impl-01"] == "parked"
     import os
@@ -115,7 +142,16 @@ def test_cap_reached_gate_quit_cancels(tmp_path):
     m.feed_read("impl-01", "c2")
     m.feed_read("ver-01", FAIL_VERDICT)
     m.feed_read("ver-01", FAIL_VERDICT)
-    orch = run.Orchestrator(config=cfg, herdr=m, gh=gh, gitops=gops, units=units, stdin=lambda: "q")
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=lambda: "q",
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
+    )
     assert orch.run() == {"impl-01": "cancelled"}
 
 
@@ -127,7 +163,16 @@ def test_cap_reached_gate_continue_lifts_cap_then_pass(tmp_path):
     m.feed_read("ver-01", FAIL_VERDICT)
     m.feed_read("ver-01", FAIL_VERDICT)
     m.feed_read("ver-01", PASS_VERDICT)
-    orch = run.Orchestrator(config=cfg, herdr=m, gh=gh, gitops=gops, units=units, stdin=lambda: "c")
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=lambda: "c",
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
+    )
     assert orch.run() == {"impl-01": "done"}
 
 
@@ -147,7 +192,16 @@ def test_pr_changes_requested_dismissed_posts_comment_then_merges(tmp_path):
     m.feed_read("ver-01", PASS_VERDICT)  # build-time cycle -> done -> PR
     m.feed_read("impl-01", DISMISSAL_YAML)  # pr-fix cycle -> dismissed
     m.feed_read("ver-01", PASS_VERDICT)  # pr-fix verifier re-run (addressed? none here)
-    orch = run.Orchestrator(config=cfg, herdr=m, gh=gh, gitops=gops, units=units, stdin=lambda: "c")
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=lambda: "c",
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
+    )
     assert orch.run() == {"impl-01": "done"}
     assert gh.merged  # eventually merged
     # the dismissed reason was posted as a PR reply

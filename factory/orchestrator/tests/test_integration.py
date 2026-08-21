@@ -102,7 +102,16 @@ def test_pass_first_cycle_done(tmp_path):
     units, cfg, m, gh, gops, impl_file, _ = setup_env(tmp_path, pr_stage=False)
     m.feed_read("impl-01", "impl output c1")
     m.feed_read("ver-01", PASS_VERDICT)
-    orch = run.Orchestrator(config=cfg, herdr=m, gh=gh, gitops=gops, units=units, stdin=lambda: "c")
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=lambda: "c",
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
+    )
     result = orch.run()
     assert result == {"impl-01": "done"}
     # one worktree, one per-cycle commit, run.log line, frontmatter value-only updated
@@ -123,7 +132,16 @@ def test_fail_then_retry_then_pass(tmp_path):
     m.feed_read("impl-01", "impl output c2")
     m.feed_read("ver-01", FAIL_VERDICT)
     m.feed_read("ver-01", PASS_VERDICT)
-    orch = run.Orchestrator(config=cfg, herdr=m, gh=gh, gitops=gops, units=units, stdin=lambda: "c")
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=lambda: "c",
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
+    )
     result = orch.run()
     assert result == {"impl-01": "done"}
     assert len(gops.commits) == 2  # one per cycle
@@ -160,6 +178,8 @@ def test_blocked_escalate_resolve_resume_pass(tmp_path):
         units=units,
         stdin=lambda: "c",
         on_park=on_park,
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
     )
     result = orch.run()
     assert result == {"impl-01": "done"}
@@ -184,7 +204,16 @@ def test_pr_stage_green_merge(tmp_path):
     units, cfg, m, gh, gops, impl_file, _ = setup_env(tmp_path, pr_stage=True, reviews=reviews)
     m.feed_read("impl-01", "impl output c1")
     m.feed_read("ver-01", PASS_VERDICT)
-    orch = run.Orchestrator(config=cfg, herdr=m, gh=gh, gitops=gops, units=units, stdin=lambda: "c")
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=lambda: "c",
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
+    )
     result = orch.run()
     assert result == {"impl-01": "done"}
     assert gh.created  # PR created
@@ -226,6 +255,15 @@ def test_two_independent_units_pipeline_both_done(tmp_path):
         m.feed_read(name, PASS_VERDICT)
     gops = gitops.MockGitOps(base=str(tmp_path))
     gh = pr_mod.MockGh()
-    orch = run.Orchestrator(config=cfg, herdr=m, gh=gh, gitops=gops, units=units, stdin=lambda: "c")
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=lambda: "c",
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
+    )
     result = orch.run()
     assert result == {"impl-01": "done", "impl-02": "done"}

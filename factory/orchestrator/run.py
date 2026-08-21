@@ -16,6 +16,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 import os
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +31,8 @@ import verdict
 from gitops import GitOpsPort
 from herdr import HerdrPort
 from pr import GhPort
+
+PARK_POLL_S = 5  # cadence for re-scanning parked units' escalation tickets
 
 StdinFn = Callable[[], str]
 
@@ -70,6 +73,8 @@ class Orchestrator:
     stdin: StdinFn
     next_esc_number: int = 1
     on_park: Callable[[UnitState], None] | None = None
+    park_poll_budget: int = 0
+    sleep_fn: Callable[[float], None] = time.sleep
     _root_pane: str = ""
     _log: list[str] = field(default_factory=list)
 
@@ -83,17 +88,30 @@ class Orchestrator:
         done: set[str] = set()
         self._root_pane = self.herdr.workspace_create(self.config.repo_path, "factory")
         safety = 0
+        park_polls = 0
         while safety < 10000:
             safety += 1
             progressed = self._sweep(states, done)
-            if not progressed:
-                # only PRs awaiting a human review remain, or all terminal.
-                awaiting = [s for s in states.values() if s.status == UnitStatus.AWAITING_PR]
-                if awaiting:
-                    # poll PRs once more (human-gated; no timeout on human).
-                    self._poll_prs(states, done)
-                    continue
-                break
+            if progressed:
+                park_polls = 0
+                continue
+            awaiting = [s for s in states.values() if s.status == UnitStatus.AWAITING_PR]
+            parked = [s for s in states.values() if s.status == UnitStatus.PARKED]
+            if awaiting:
+                # PRs awaiting human review: poll on the configured cadence (no timeout).
+                self.sleep_fn(self.config.pr_poll_cadence_s)
+                self._poll_prs(states, done)
+                continue
+            if parked:
+                # file-driven resume (06 Q2): re-scan parked units' tickets each loop;
+                # the human/wayfinder resolves them out-of-band. Park, don't halt.
+                # park_poll_budget bounds this for tests; 0 = wait indefinitely (live).
+                park_polls += 1
+                if self.park_poll_budget and park_polls >= self.park_poll_budget:
+                    break
+                self.sleep_fn(PARK_POLL_S)
+                continue
+            break  # all units terminal
         return {uid: st.status.value for uid, st in states.items()}
 
     def _sweep(self, states: dict[str, UnitState], done: set[str]) -> bool:
@@ -127,10 +145,14 @@ class Orchestrator:
         st.unit = dataclasses.replace(st.unit, path=wt_path)
         impl_name = st.id
         ver_name = "ver-" + st.id.split("-")[-1]
-        impl_pane = self.herdr.pane_split(self._root_pane, "right")
-        ver_pane = self.herdr.pane_split(self._root_pane, "right")
-        self.herdr.agent_start(impl_name, impl_pane, self.config.implementer_model)
-        self.herdr.agent_start(ver_name, ver_pane, self.config.verifier_model)
+        impl_pane = self.herdr.pane_split(self._root_pane, "right", cwd=st.worktree)
+        ver_pane = self.herdr.pane_split(self._root_pane, "right", cwd=st.worktree)
+        self.herdr.agent_start(
+            impl_name, impl_pane, self.config.implementer_model, approve=self.config.no_approve
+        )
+        self.herdr.agent_start(
+            ver_name, ver_pane, self.config.verifier_model, approve=self.config.no_approve
+        )
         st.panes = cycle.Panes(impl_name, ver_name, impl_pane, ver_pane)
 
     def _worktree_unit_path(self, st: UnitState) -> str:

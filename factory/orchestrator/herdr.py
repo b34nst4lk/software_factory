@@ -23,8 +23,10 @@ from typing import Protocol
 
 class HerdrPort(Protocol):
     def workspace_create(self, cwd: str, label: str) -> str: ...
-    def pane_split(self, pane_id: str, direction: str) -> str: ...
-    def agent_start(self, name: str, pane_id: str, model: str) -> None: ...
+    def pane_split(self, pane_id: str, direction: str, *, cwd: str | None = None) -> str: ...
+    def agent_start(
+        self, name: str, pane_id: str, model: str, *, approve: bool = False
+    ) -> None: ...
     def agent_prompt(self, name: str, prompt: str, *, until: str, timeout_ms: int) -> None: ...
     def agent_read(self, name: str, lines: int) -> str: ...
     def agent_wait(self, name: str, *, until: str, timeout_ms: int) -> None: ...
@@ -32,6 +34,25 @@ class HerdrPort(Protocol):
 
 
 Runner = Callable[[list[str]], tuple[str, int]]
+
+
+def _extract_pane_id(data: object, *prefix: str) -> str:
+    """Pull pane_id from a CLI JSON response, tolerating a `.result` wrapper or not."""
+    node: object = data
+    for key in prefix:
+        if isinstance(node, dict) and key in node:
+            node = node[key]
+        else:
+            node = data  # no wrapper; fall back to the root object
+            break
+    if isinstance(node, dict):
+        if "pane_id" in node:
+            return str(node["pane_id"])
+        # root_pane / pane nested one more level
+        for inner in ("root_pane", "pane"):
+            if inner in node and isinstance(node.get(inner), dict):
+                return str(node.get(inner, {}).get("pane_id", ""))
+    raise RuntimeError(f"could not find pane_id in: {data!r}")
 
 
 def _default_runner(argv: list[str]) -> tuple[str, int]:
@@ -51,18 +72,20 @@ class Herdr:
 
     def workspace_create(self, cwd: str, label: str) -> str:
         out, _ = self._cmd(["workspace", "create", "--cwd", cwd, "--label", label, "--no-focus"])
-        data = json.loads(out)
-        return str(data["result"]["root_pane"]["pane_id"])
+        return _extract_pane_id(json.loads(out), "result", "root_pane")
 
-    def pane_split(self, pane_id: str, direction: str) -> str:
-        out, _ = self._cmd(["pane", "split", pane_id, "--direction", direction, "--no-focus"])
-        data = json.loads(out)
-        return str(data["result"]["pane"]["pane_id"])
+    def pane_split(self, pane_id: str, direction: str, *, cwd: str | None = None) -> str:
+        args = ["pane", "split", pane_id, "--direction", direction, "--no-focus"]
+        if cwd:
+            args += ["--cwd", cwd]
+        out, _ = self._cmd(args)
+        return _extract_pane_id(json.loads(out), "result", "pane")
 
-    def agent_start(self, name: str, pane_id: str, model: str) -> None:
-        self._cmd(
-            ["agent", "start", name, "--kind", "pi", "--pane", pane_id, "--", "--model", model]
-        )
+    def agent_start(self, name: str, pane_id: str, model: str, *, approve: bool = False) -> None:
+        pi_args = ["--model", model]
+        if approve:
+            pi_args.append("--approve")
+        self._cmd(["agent", "start", name, "--kind", "pi", "--pane", pane_id, "--", *pi_args])
 
     def agent_prompt(self, name: str, prompt: str, *, until: str, timeout_ms: int) -> None:
         self._cmd(
@@ -89,7 +112,18 @@ class Herdr:
         self._cmd(["agent", "wait", name, "--until", until, "--timeout", str(timeout_ms)])
 
     def report_metadata(self, pane_id: str, summary: str) -> None:
-        self._cmd(["pane", "report-metadata", pane_id, "--token", f"summary={summary}"])
+        # --source identifies the metadata writer; --token summary=... renders as $summary.
+        self._cmd(
+            [
+                "pane",
+                "report-metadata",
+                pane_id,
+                "--source",
+                "orchestrator",
+                "--token",
+                f"summary={summary}",
+            ]
+        )
 
 
 class MockHerdr:
@@ -112,10 +146,10 @@ class MockHerdr:
     def workspace_create(self, cwd: str, label: str) -> str:
         return self._pane()
 
-    def pane_split(self, pane_id: str, direction: str) -> str:
+    def pane_split(self, pane_id: str, direction: str, *, cwd: str | None = None) -> str:
         return self._pane()
 
-    def agent_start(self, name: str, pane_id: str, model: str) -> None:
+    def agent_start(self, name: str, pane_id: str, model: str, *, approve: bool = False) -> None:
         self._started[name] = (pane_id, model)
 
     def agent_prompt(self, name: str, prompt: str, *, until: str, timeout_ms: int) -> None:

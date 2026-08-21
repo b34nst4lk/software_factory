@@ -52,6 +52,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+def _stdin() -> str:
+    try:
+        return input()
+    except EOFError:
+        # unattended/background run with no tty: treat EOF as quit so we don't hang.
+        return "q"
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     impl_glob = args.impl_glob or os.path.join(args.repo, ".scratch", args.effort, "impl", "*.md")
@@ -77,7 +85,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         gh=gh,
         gitops=gops,
         units=units,
-        stdin=input,
+        stdin=_stdin,
     )
     result = orch.run()
     for uid, status in result.items():
