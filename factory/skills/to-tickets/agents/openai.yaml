@@ -1,5 +1,5 @@
 interface:
-  display_name: "to-tickets"
-  short_description: "Convert resolved Wayfinder decisions into orchestrator implementation tickets"
+  display_name: "factory-to-tickets"
+  short_description: "Slice one resolved Wayfinder decision into orchestrator Work Units"
 policy:
   allow_implicit_invocation: false
