@@ -321,6 +321,7 @@ class Orchestrator:
         choice = self.stdin().strip().lower() or "c"
         if choice == "q":
             st.status = UnitStatus.CANCELLED
+            tickets.write_frontmatter_value(st.unit.path, status="cancelled")
             return
         if choice == "w":
             path = escalate.create_escalation_ticket(
@@ -334,6 +335,7 @@ class Orchestrator:
             st.escalation_paths = [path]
             st.status = UnitStatus.PARKED
             self.next_esc_number += 1
+            tickets.write_frontmatter_value(st.unit.path, status="parked")
             return
         # c (continue): re-run the cycle. On the cap backstop the human lifts the
         # ceiling once (overridable per 05 Q3); on an unparseable verdict, just retry.

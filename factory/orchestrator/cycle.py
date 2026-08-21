@@ -156,8 +156,18 @@ def run_cycle(
         action = verdict.route(v)
         overall_str = v.overall.value
 
-        # 4. state: value-only frontmatter + append-only run.log + guarded commit
-        tickets.write_frontmatter_value(unit.path, cycle=cycle_no, last_verdict=overall_str)
+        # 4. state: value-only frontmatter + append-only run.log + guarded commit.
+        #    status persists the lifecycle (04): done/parked at the terminal cycle,
+        #    in_progress on a retry cycle (a capped unit is still in_progress).
+        if action is verdict.Action.DONE:
+            status_str = "done"
+        elif action is verdict.Action.ESCALATE:
+            status_str = "parked"
+        else:  # RETRY
+            status_str = "in_progress"
+        tickets.write_frontmatter_value(
+            unit.path, cycle=cycle_no, last_verdict=overall_str, status=status_str
+        )
         tickets.append_run_log(worktree, f"{unit.id} c{cycle_no} {overall_str}")
         commit(unit.id, cycle_no, overall_str, worktree)
         herdr.report_metadata(panes.impl_pane, f"{unit.id} c{cycle_no} {overall_str}")

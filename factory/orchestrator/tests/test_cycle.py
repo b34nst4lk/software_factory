@@ -283,3 +283,73 @@ def test_cycle_counter_persists_across_resume(tmp_path):
     assert "c1 BLOCKED" in log
     assert "c2 PASS" in log
     assert log.count("c1 ") == 1  # no second c1
+
+
+def test_done_persists_status_done(tmp_path):
+    unit = make_unit(tmp_path)
+    m = herdr.MockHerdr()
+    worktree = str(tmp_path / "wt")
+    Path(worktree).mkdir()
+    issues = tmp_path / "issues"
+    issues.mkdir()
+    m.feed_read("impl-01", "c1")
+    m.feed_read("ver-01", PASS_VERDICT)
+    cycle.run_cycle(
+        unit=unit,
+        config=FakeConfig(),
+        herdr=m,
+        worktree=worktree,
+        branch="impl-01",
+        panes=make_panes(),
+        commit=lambda *a: None,
+        issues_dir=str(issues),
+        next_esc_number=10,
+    )
+    assert tickets.parse_impl_file(unit.path).status == "done"
+
+
+def test_blocked_persists_status_parked(tmp_path):
+    unit = make_unit(tmp_path)
+    m = herdr.MockHerdr()
+    worktree = str(tmp_path / "wt")
+    Path(worktree).mkdir()
+    issues = tmp_path / "issues"
+    issues.mkdir()
+    m.feed_read("impl-01", "c1")
+    m.feed_read("ver-01", BLOCKED_VERDICT)
+    cycle.run_cycle(
+        unit=unit,
+        config=FakeConfig(),
+        herdr=m,
+        worktree=worktree,
+        branch="impl-01",
+        panes=make_panes(),
+        commit=lambda *a: None,
+        issues_dir=str(issues),
+        next_esc_number=10,
+    )
+    assert tickets.parse_impl_file(unit.path).status == "parked"
+
+
+def test_in_progress_persisted_when_not_terminal(tmp_path):
+    # cap=1, FAIL -> CAP_REACHED: status written in_progress at cycle start, no terminal write
+    unit = make_unit(tmp_path)
+    m = herdr.MockHerdr()
+    worktree = str(tmp_path / "wt")
+    Path(worktree).mkdir()
+    issues = tmp_path / "issues"
+    issues.mkdir()
+    m.feed_read("impl-01", "c1")
+    m.feed_read("ver-01", FAIL_VERDICT)
+    cycle.run_cycle(
+        unit=unit,
+        config=FakeConfig(cycle_cap=1),
+        herdr=m,
+        worktree=worktree,
+        branch="impl-01",
+        panes=make_panes(),
+        commit=lambda *a: None,
+        issues_dir=str(issues),
+        next_esc_number=10,
+    )
+    assert tickets.parse_impl_file(unit.path).status == "in_progress"

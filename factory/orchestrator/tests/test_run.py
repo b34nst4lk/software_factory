@@ -253,3 +253,22 @@ def test_next_issue_number_helper(tmp_path):
     (d / "01-a.md").write_text("x")
     assert run._next_issue_number(str(d)) == 10  # past the highest (09)
     assert run._next_issue_number(str(tmp_path / "nope")) == 1  # missing dir
+
+
+def test_quit_persists_status_cancelled_to_frontmatter(tmp_path):
+    units, cfg, m, gh, gops = setup(tmp_path)
+    m.feed_read("impl-01", "c1")
+    m.feed_read("ver-01", UNPARSEABLE_VERDICT)  # -> human gate -> 'q' -> cancelled
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=lambda: "q",
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
+    )
+    assert orch.run() == {"impl-01": "cancelled"}
+    impl = tmp_path / "sf-impl-01" / ".scratch" / "sf" / "impl" / "01-greet.md"
+    assert tickets.parse_impl_file(str(impl)).status == "cancelled"
