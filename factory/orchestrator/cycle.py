@@ -103,7 +103,7 @@ def run_cycle(
         herdr.agent_prompt(
             panes.impl_name,
             impl_prompt,
-            until="done",
+            until=["idle", "done", "blocked"],
             timeout_ms=config.prompt_timeout_ms,
         )
         impl_out = herdr.agent_read(panes.impl_name, config.read_lines)
@@ -118,7 +118,7 @@ def run_cycle(
         herdr.agent_prompt(
             panes.ver_name,
             ver_prompt,
-            until="done",
+            until=["idle", "done", "blocked"],
             timeout_ms=config.prompt_timeout_ms,
         )
         ver_out = herdr.agent_read(panes.ver_name, config.read_lines)

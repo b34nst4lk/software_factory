@@ -27,7 +27,9 @@ class HerdrPort(Protocol):
     def agent_start(
         self, name: str, pane_id: str, model: str, *, approve: bool = False
     ) -> None: ...
-    def agent_prompt(self, name: str, prompt: str, *, until: str, timeout_ms: int) -> None: ...
+    def agent_prompt(
+        self, name: str, prompt: str, *, until: str | list[str], timeout_ms: int
+    ) -> None: ...
     def agent_read(self, name: str, lines: int) -> str: ...
     def agent_wait(self, name: str, *, until: str, timeout_ms: int) -> None: ...
     def report_metadata(self, pane_id: str, summary: str) -> None: ...
@@ -94,20 +96,17 @@ class Herdr:
             pi_args.append("--approve")
         self._cmd(["agent", "start", name, "--kind", "pi", "--pane", pane_id, "--", *pi_args])
 
-    def agent_prompt(self, name: str, prompt: str, *, until: str, timeout_ms: int) -> None:
-        self._cmd(
-            [
-                "agent",
-                "prompt",
-                name,
-                prompt,
-                "--wait",
-                "--until",
-                until,
-                "--timeout",
-                str(timeout_ms),
-            ]
-        )
+    def agent_prompt(
+        self, name: str, prompt: str, *, until: str | list[str], timeout_ms: int
+    ) -> None:
+        # `--until` matches the EXACT state(s); a finished turn may settle as `idle`
+        # (seen) not just `done` (unseen), and a verifier may `blocked`. Match the full
+        # terminal set so --wait returns the moment the worker's turn ends.
+        states = [until] if isinstance(until, str) else list(until)
+        args = ["agent", "prompt", name, prompt, "--wait", "--timeout", str(timeout_ms)]
+        for s in states:
+            args += ["--until", s]
+        self._cmd(args)
 
     def agent_read(self, name: str, lines: int) -> str:
         out, _ = self._cmd(
@@ -159,7 +158,9 @@ class MockHerdr:
     def agent_start(self, name: str, pane_id: str, model: str, *, approve: bool = False) -> None:
         self._started[name] = (pane_id, model)
 
-    def agent_prompt(self, name: str, prompt: str, *, until: str, timeout_ms: int) -> None:
+    def agent_prompt(
+        self, name: str, prompt: str, *, until: str | list[str], timeout_ms: int
+    ) -> None:
         self.prompts.setdefault(name, []).append(prompt)
 
     def agent_read(self, name: str, lines: int) -> str:
