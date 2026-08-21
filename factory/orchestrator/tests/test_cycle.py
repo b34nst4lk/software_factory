@@ -228,3 +228,58 @@ def test_verdict_file_takes_precedence_over_pane_text(tmp_path):
         next_esc_number=1,
     )
     assert result.outcome is cycle.CycleOutcome.DONE
+
+
+def test_cycle_counter_persists_across_resume(tmp_path):
+    """On resume the cycle counter continues from the persisted frontmatter `cycle`,
+    so the 5-cycle backstop counts across the unit's whole life (not per-resume)."""
+    unit = make_unit(tmp_path)
+    m = herdr.MockHerdr()
+    worktree = str(tmp_path / "wt")
+    Path(worktree).mkdir()
+    issues = tmp_path / "issues"
+    issues.mkdir()
+    cfg = FakeConfig(cycle_cap=5)
+    commits: list[tuple] = []
+
+    def commit(uid, c, o, wt):
+        commits.append((uid, c, o))
+
+    # cycle 1 -> BLOCKED
+    m.feed_read("impl-01", "c1")
+    m.feed_read("ver-01", BLOCKED_VERDICT)
+    r1 = cycle.run_cycle(
+        unit=unit,
+        config=cfg,
+        herdr=m,
+        worktree=worktree,
+        branch="impl-01",
+        panes=make_panes(),
+        commit=commit,
+        issues_dir=str(issues),
+        next_esc_number=10,
+    )
+    assert r1.outcome is cycle.CycleOutcome.ESCALATE
+    assert tickets.parse_impl_file(unit.path).cycle == 1  # persisted
+
+    # resume: must continue at cycle 2 (seeded from the persisted cycle=1), not restart at 1
+    m.feed_read("impl-01", "c2")
+    m.feed_read("ver-01", PASS_VERDICT)
+    r2 = cycle.run_cycle(
+        unit=unit,
+        config=cfg,
+        herdr=m,
+        worktree=worktree,
+        branch="impl-01",
+        panes=make_panes(),
+        commit=commit,
+        issues_dir=str(issues),
+        next_esc_number=10,
+        resolution="greet(None) raises TypeError",
+    )
+    assert r2.outcome is cycle.CycleOutcome.DONE
+    assert r2.final_cycle == 2  # the bug: this was 1 before the fix
+    log = (Path(worktree) / "run.log").read_text()
+    assert "c1 BLOCKED" in log
+    assert "c2 PASS" in log
+    assert log.count("c1 ") == 1  # no second c1

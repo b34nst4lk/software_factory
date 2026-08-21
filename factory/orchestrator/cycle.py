@@ -111,7 +111,10 @@ def run_cycle(
 ) -> CycleResult:
     cap = cap_override if cap_override is not None else config.cycle_cap
     prior_feedback: str | None = None
-    cycle_no = 0
+    # Seed from the persisted frontmatter `cycle` (git-as-state: the frontmatter is the
+    # source of truth, and the in-memory unit.cycle may be stale across a park/resume).
+    # The cap is a TOTAL ceiling across the unit's whole life (05 Q3), not per-resume.
+    cycle_no = tickets.parse_impl_file(unit.path).cycle
     while cycle_no < cap:
         cycle_no += 1
         # 1. implementer

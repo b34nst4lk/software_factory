@@ -202,6 +202,7 @@ class Orchestrator:
             issues_dir=self.config.issues_dir,
             next_esc_number=self.next_esc_number,
             resolution=resolution,
+            cap_override=st.cap_override,
         )
         st.last_outcome = result.outcome.value
         if result.outcome is cycle.CycleOutcome.DONE:
