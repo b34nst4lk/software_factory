@@ -68,7 +68,18 @@ def _stdin() -> str:
         return "q"
 
 
+def configure_live_output(*, stdout: object | None = None, stderr: object | None = None) -> None:
+    """Line-buffer stdout/stderr so a human watching a redirected log sees each line
+    live (Python block-buffers a non-tty stream otherwise — 05 Q5 human-surfacing).
+    """
+    for stream in (stdout or sys.stdout, stderr or sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(line_buffering=True)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    configure_live_output()
     args = parse_args(argv)
     impl_glob = args.impl_glob or os.path.join(args.repo, ".scratch", args.effort, "impl", "*.md")
     cfg = config_mod.default(args.repo, args.effort, impl_glob).with_overrides(
