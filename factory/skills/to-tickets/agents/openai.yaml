@@ -1,0 +1,5 @@
+interface:
+  display_name: "to-tickets"
+  short_description: "Convert resolved Wayfinder decisions into orchestrator implementation tickets"
+policy:
+  allow_implicit_invocation: false
