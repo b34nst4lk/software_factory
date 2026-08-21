@@ -11,6 +11,7 @@ The pure checks below are the test seam. :func:`main` is the pre-commit entrypoi
 it reads staged file content via ``git`` and applies the two rules to staged impl
 tickets (``.../impl/*.md``) and ``run.log`` files.
 """
+
 from __future__ import annotations
 
 import re
@@ -35,7 +36,7 @@ class Violation:
     detail: str
 
 
-def split_frontmatter(text: str) -> tuple[dict | None, str]:
+def split_frontmatter(text: str) -> tuple[dict[str, object] | None, str]:
     """Split a ticket into ``(frontmatter_dict, prose_body)``.
 
     Returns ``(None, full_text)`` when there is no leading ``---`` frontmatter block.
@@ -48,7 +49,7 @@ def split_frontmatter(text: str) -> tuple[dict | None, str]:
     except yaml.YAMLError:
         return None, text
     if not isinstance(data, dict):
-        data = {} if data is None else data  # type: ignore[assignment]
+        return {}, m.group(2)
     return data, m.group(2)
 
 
@@ -103,9 +104,7 @@ def check_run_log_diff(diff_text: str, path: str) -> list[Violation]:
 
 
 def _git(args: Sequence[str]) -> str:
-    return subprocess.run(
-        ["git", *args], capture_output=True, text=True, check=True
-    ).stdout
+    return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout
 
 
 def staged_paths() -> list[str]:
@@ -114,9 +113,7 @@ def staged_paths() -> list[str]:
 
 
 def _head_text(path: str) -> str:
-    res = subprocess.run(
-        ["git", "show", f"HEAD:{path}"], capture_output=True, text=True
-    )
+    res = subprocess.run(["git", "show", f"HEAD:{path}"], capture_output=True, text=True)
     return res.stdout if res.returncode == 0 else ""
 
 

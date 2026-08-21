@@ -1,10 +1,11 @@
 """Tests for guard.py — the value-only frontmatter + append-only run.log guard util."""
+
 from __future__ import annotations
 
 import guard
 
-
 # ---- split_frontmatter ----
+
 
 def test_split_frontmatter_parses_keys_and_body():
     text = "---\nid: impl-01\ncycle: 0\n---\nBody line one.\nBody line two.\n"
@@ -21,10 +22,7 @@ def test_split_frontmatter_returns_none_when_absent():
 
 # ---- key-set change detection ----
 
-BEFORE = (
-    "---\nid: impl-01\nstatus: open\ncycle: 0\nlast_verdict: \"\"\n---\n"
-    "Implement greet.\n"
-)
+BEFORE = '---\nid: impl-01\nstatus: open\ncycle: 0\nlast_verdict: ""\n---\n' "Implement greet.\n"
 VALUE_ONLY = (
     "---\nid: impl-01\nstatus: in_progress\ncycle: 1\nlast_verdict: FAIL\n---\n"
     "Implement greet.\n"
@@ -33,9 +31,7 @@ KEY_ADDED = (
     "---\nid: impl-01\nstatus: in_progress\ncycle: 1\nlast_verdict: FAIL\n"
     "extra_key: boom\n---\nImplement greet.\n"
 )
-KEY_REMOVED = (
-    "---\nid: impl-01\nstatus: in_progress\ncycle: 1\n---\nImplement greet.\n"
-)
+KEY_REMOVED = "---\nid: impl-01\nstatus: in_progress\ncycle: 1\n---\nImplement greet.\n"
 BODY_EDITED = (
     "---\nid: impl-01\nstatus: in_progress\ncycle: 1\nlast_verdict: FAIL\n---\n"
     "Implement greet DIFFERENTLY.\n"
@@ -64,20 +60,9 @@ def test_body_changed_true_when_prose_edited():
 
 # ---- run.log append-only ----
 
-APPEND_ONLY_DIFF = (
-    "@@ -1,1 +1,2 @@\n"
-    " line one\n"
-    "+line two\n"
-)
-DELETION_DIFF = (
-    "@@ -1,2 +1,1 @@\n"
-    " line one\n"
-    "-line two\n"
-)
-ONLY_HUNK_HEADER_MINUS = (
-    "@@ -1,1 +1,1 @@\n"
-    " line one\n"
-)
+APPEND_ONLY_DIFF = "@@ -1,1 +1,2 @@\n" " line one\n" "+line two\n"
+DELETION_DIFF = "@@ -1,2 +1,1 @@\n" " line one\n" "-line two\n"
+ONLY_HUNK_HEADER_MINUS = "@@ -1,1 +1,1 @@\n" " line one\n"
 
 
 def test_run_log_has_deletions_false_for_append_only():
@@ -93,6 +78,7 @@ def test_run_log_has_deletions_true_for_a_removed_line():
 
 
 # ---- check_impl_file / check_run_log_diff ----
+
 
 def test_check_impl_file_value_only_change_no_violations():
     v = guard.check_impl_file(BEFORE, VALUE_ONLY, "01-greet.md", is_new=False)
