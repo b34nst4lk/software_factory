@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Husky pre-commit — the software-factory's formalize-when-discovered gate (05 Q2 + 06 Q7).
+#
+# Runs on every commit, repo-wide (and active in worktrees — they share the repo's
+# hooks via the commondir). Two parts:
+#   1. guard util — git-as-state integrity: impl/*.md frontmatter changes are value-only
+#      (key set unchanged, prose body unchanged) and run.log is append-only (no `-`
+#      lines). A key-add, a body edit, or a run.log deletion is REJECTED.
+#   2. python toolchain on the orchestrator package — ruff + black + pytest + mypy +
+#      coverage (threshold-enforced). Dogfooded on the orchestrator's own code.
+set -euo pipefail
+
+REPO="$(git rev-parse --show-toplevel)"
+PY="$REPO/.venv/bin/python"
+ORCH="$REPO/factory/orchestrator"
+
+# 1. guard util (operates on staged files; no-arg -> reads `git diff --cached`).
+"$PY" "$ORCH/guard.py"
+
+# 2. python toolchain (formalize-when-discovered: programmatic checks live in pre-commit).
+cd "$ORCH"
+"$PY" -m ruff check .
+"$PY" -m black --check .
+"$PY" -m coverage run -m pytest tests/ -q
+"$PY" -m coverage report --fail-under=90
+"$PY" -m mypy
