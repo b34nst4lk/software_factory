@@ -52,6 +52,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--herdr-session", default="", help="herdr --session <name> (the headless server socket)"
     )
+    p.add_argument(
+        "--implementer-env-hint",
+        default="",
+        help="repo-specific test-runner hint injected into the implementer prompt",
+    )
     return p.parse_args(argv)
 
 
@@ -74,6 +79,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         gh_repo=args.gh_repo,
         worktree_parent=args.worktree_parent or os.path.dirname(args.repo),
         herdr_session=args.herdr_session,
+        implementer_env_hint=args.implementer_env_hint,
     )
     paths = sorted(glob.glob(impl_glob))
     if not paths:

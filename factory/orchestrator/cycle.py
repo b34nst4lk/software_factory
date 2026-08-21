@@ -98,6 +98,7 @@ def run_cycle(
             branch=branch,
             prior_feedback=prior_feedback,
             resolution=resolution,
+            env_hint=getattr(config, "implementer_env_hint", "") or None,
         )
         herdr.agent_prompt(
             panes.impl_name,

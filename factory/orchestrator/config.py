@@ -41,6 +41,7 @@ class Config:
     gh_repo: str = ""
     worktree_parent: str = ".."
     herdr_session: str = ""  # herdr --session <name>; "" = default socket
+    implementer_env_hint: str = ""  # repo-specific test-runner hint injected into the impl prompt
 
     def with_overrides(self, **kw: object) -> Config:
         return replace(self, **{k: v for k, v in kw.items() if v is not None})  # type: ignore[arg-type]

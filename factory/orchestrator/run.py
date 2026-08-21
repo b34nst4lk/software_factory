@@ -13,6 +13,7 @@ cycle; this module owns the cross-unit pipeline + PR stage + human gates.
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import enum
 import os
@@ -138,6 +139,7 @@ class Orchestrator:
     # ---- per-unit ----
     def _start_unit(self, st: UnitState) -> None:
         st.worktree = self.gitops.worktree_add(st.branch, parent=self.config.worktree_parent)
+        _link_venv(self.config.repo_path, st.worktree)
         wt_path = self._worktree_unit_path(st)
         if not os.path.exists(wt_path):
             os.makedirs(os.path.dirname(wt_path), exist_ok=True)
@@ -317,6 +319,21 @@ class Orchestrator:
 
     def summary(self) -> dict[str, str]:
         return {}
+
+
+def _link_venv(repo_path: str, worktree: str) -> None:
+    """Symlink the main repo's .venv into the worktree so workers can run tests there.
+
+    The venv is gitignored, so worktrees don't get it; a symlink lets the implementer
+    use ``.venv/bin/python -m pytest`` without reinstalling deps. Skipped if absent.
+    """
+    import os
+
+    src = os.path.join(repo_path, ".venv")
+    dst = os.path.join(worktree, ".venv")
+    if os.path.isdir(src) and not os.path.exists(dst):
+        with contextlib.suppress(OSError):
+            os.symlink(src, dst)
 
 
 def _empty_panes(unit_id: str) -> cycle.Panes:

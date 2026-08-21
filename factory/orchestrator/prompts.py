@@ -30,9 +30,12 @@ def implementer_prompt(
     branch: str,
     prior_feedback: str | None,
     resolution: str | None,
+    env_hint: str | None = None,
 ) -> str:
     parts: list[str] = []
     parts.append(f"[orchestrator context] worktree: {worktree} | branch: {branch} | cycle: {cycle}")
+    if env_hint:
+        parts.append(f"[env] {env_hint}")
     parts.append(
         "Build test-first via /skill:tdd. Stay within scope_files. When test-green "
         "and within scope, stop and summarize what changed and the test results."
