@@ -206,3 +206,50 @@ def test_pr_changes_requested_dismissed_posts_comment_then_merges(tmp_path):
     assert gh.merged  # eventually merged
     # the dismissed reason was posted as a PR reply
     assert any("out of scope" in body for _num, body in gh.comments)
+
+
+BLOCKED_VERDICT = """\
+```yaml
+overall: BLOCKED
+gates:
+  - {gate: contradictions, status: BLOCKED, escalation: "greet(None) unspecified"}
+```
+"""
+
+
+def test_escalation_ticket_numbered_past_existing_issues(tmp_path):
+    import os
+
+    units, cfg, m, gh, gops = setup(tmp_path)
+    # the tracker already has issues up to 09
+    (tmp_path / ".scratch" / "sf" / "issues" / "09-existing.md").write_text(
+        "# 9\nType: grilling\nStatus: resolved\n\n## Answer\nx\n"
+    )
+    m.feed_read("impl-01", "c1")
+    m.feed_read("ver-01", BLOCKED_VERDICT)
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=lambda: "c",
+        sleep_fn=lambda s: None,
+        park_poll_budget=1,
+    )
+    result = orch.run()
+    assert result["impl-01"] == "parked"  # no resolution -> parks and the budget returns
+    esc = [f for f in os.listdir(cfg.issues_dir) if f.startswith("10-")]
+    assert len(esc) == 1, os.listdir(cfg.issues_dir)
+
+
+def test_next_issue_number_helper(tmp_path):
+
+    d = tmp_path / "issues"
+    d.mkdir()
+    assert run._next_issue_number(str(d)) == 1  # empty tracker
+    (d / "02-b.md").write_text("x")
+    (d / "09-z.md").write_text("x")
+    (d / "01-a.md").write_text("x")
+    assert run._next_issue_number(str(d)) == 10  # past the highest (09)
+    assert run._next_issue_number(str(tmp_path / "nope")) == 1  # missing dir

@@ -1,7 +1,7 @@
 # 10 — orchestrator: escalation ticket numbering
 
 Type: task
-Status: open
+Status: resolved
 Blocked by:
 Found by: 07 (live smoke). Follow-up to 09.
 
@@ -19,5 +19,12 @@ Seed `next_esc_number` from the highest existing `NN-` prefix in `config.issues_
 `Orchestrator.run()` before the loop.
 
 ## Answer
+
+Fixed 2026-08-21. Added `run._next_issue_number(issues_dir)` (highest existing `NN-`
+prefix + 1, or 1 if the dir is empty/missing) and seed `Orchestrator.next_esc_number`
+from it at the top of `run()`. Escalations now number past the tracker's existing
+decisions (the smoke's `01-...` collision is gone). Covered by a helper unit test
+(empty / past-09 / missing dir) + the integration-style escalation test asserting the
+ticket is `10-...`.
 
 <!-- filled when fixed -->

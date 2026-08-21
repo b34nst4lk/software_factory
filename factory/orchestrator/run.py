@@ -35,6 +35,28 @@ from pr import GhPort
 
 PARK_POLL_S = 5  # cadence for re-scanning parked units' escalation tickets
 
+
+def _next_issue_number(issues_dir: str) -> int:
+    """Next free issue number: 1 + the highest NN- prefix already in the tracker.
+
+    Escalations live in the shared ``issues/`` namespace (06 Q2), so they must number
+    past existing decisions — not start at 1 and collide with ``01-repo-bootstrap``.
+    """
+    import os
+    import re
+
+    nums: list[int] = []
+    try:
+        names = os.listdir(issues_dir)
+    except OSError:
+        return 1
+    for name in names:
+        m = re.match(r"(\d+)-", name)
+        if m:
+            nums.append(int(m.group(1)))
+    return (max(nums) + 1) if nums else 1
+
+
 StdinFn = Callable[[], str]
 
 
@@ -81,6 +103,7 @@ class Orchestrator:
 
     # ---- lifecycle ----
     def run(self) -> dict[str, str]:
+        self.next_esc_number = _next_issue_number(self.config.issues_dir)
         topo = tickets.topo_sort(self.units)
         states: dict[str, UnitState] = {
             u.id: UnitState(unit=u, branch=u.id, worktree="", panes=_empty_panes(u.id))
