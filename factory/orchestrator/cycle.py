@@ -76,13 +76,42 @@ class _CfgLike(Protocol):
 
 _VERDICT_FILE_RE = re.compile(r"VERDICT_FILE:\s*(\S+)", re.MULTILINE)
 
+# Decision 15: a compact one-line routing trailer `VERDICT overall=PASS|FAIL|BLOCKED`
+# that survives pane line-wrapping. Pure text scan — reads only the LAST non-empty
+# line, so a stray mid-text trailer does not count. Mirrors impl-01's
+# `verdict.parse_trailer` contract (which is not present on this branch).
+_TRAILER_RE = re.compile(r"^VERDICT\s+overall\s*=\s*(\S+)\s*$", re.IGNORECASE)
+
+
+def _parse_trailer(text: str) -> verdict.Overall | None:
+    """Return the routing Overall from the last non-empty `VERDICT overall=X` line.
+
+    Reads only the last non-empty line of ``text``. Returns the matching ``Overall``
+    (PASS/FAIL/BLOCKED) when that line is a valid trailer, else ``None``. The overall
+    token is case-insensitive and tolerates surrounding spaces around ``=`` and trailing
+    whitespace. Pure text scan — no fenced-YAML extraction.
+    """
+    last = ""
+    for line in text.splitlines():
+        if line.strip():
+            last = line
+    m = _TRAILER_RE.match(last)
+    if m is None:
+        return None
+    token = m.group(1).upper()
+    try:
+        return verdict.Overall[token]
+    except KeyError:
+        return None
+
 
 def _parse_verdict(ver_out: str, worktree: str) -> verdict.Verdict:
     """Parse the verifier verdict, preferring a file the verifier wrote to disk.
 
-    Pane line-wrapping corrupts inline fenced YAML (the live smoke hit this), so the
-    verifier is asked to write `.verdict.yaml` and reply `VERDICT_FILE: <path>`. We
-    read that file (resolved against the worktree) as raw YAML; fall back to the pane.
+    Cascade (decision 15): verdict FILE (exact YAML) → one-line routing trailer →
+    fenced-YAML pane block. The trailer is routing-only: when it is the only signal we
+    build a ``Verdict`` with the trailer's ``Overall`` and empty feedbacks/escalations
+    (the long feedback/escalation text still comes from the file, best-effort).
     """
     m = _VERDICT_FILE_RE.search(ver_out)
     if m:
@@ -91,7 +120,10 @@ def _parse_verdict(ver_out: str, worktree: str) -> verdict.Verdict:
         try:
             return verdict.parse_verdict_yaml(Path(full).read_text())
         except OSError:
-            pass  # fall through to pane parsing
+            pass  # fall through to trailer/pane parsing
+    overall = _parse_trailer(ver_out)
+    if overall is not None:
+        return verdict.Verdict(overall)  # routing-only; empty feedbacks/escalations
     return verdict.parse_verdict(ver_out)
 
 
@@ -150,9 +182,26 @@ def run_cycle(
         )
         ver_out = herdr.agent_read(panes.ver_name, config.read_lines)
 
-        # 3. parse + route — prefer the verdict FILE the verifier wrote (pane
-        #    wrapping corrupts inline YAML); fall back to the pane's fenced block.
+        # 3. parse + route — cascade (decision 15): verdict FILE → one-line routing
+        #    trailer → (bounded re-prompt exactly once) → file/trailer → HUMAN_GATE.
+        #    The trailer is a compact routing channel that survives pane wrapping; the
+        #    file carries the long feedback/escalation text (best-effort).
         v = _parse_verdict(ver_out, worktree)
+        if v.overall is verdict.Overall.UNPARSEABLE:
+            # bounded re-prompt: exactly once, then the never-assume human gate.
+            reprompt = prompts.reprompt_verifier(cycle=cycle_no, resolution=resolution)
+            herdr.agent_prompt(
+                panes.ver_name,
+                reprompt,
+                until=["idle", "done", "blocked"],
+                timeout_ms=config.prompt_timeout_ms,
+            )
+            ver_out = herdr.agent_read(panes.ver_name, config.read_lines)
+            v = _parse_verdict(ver_out, worktree)
+            if v.overall is verdict.Overall.UNPARSEABLE:
+                return CycleResult(
+                    CycleOutcome.HUMAN_GATE, unit.id, cycle_no, raw_verdict=ver_out
+                )
         action = verdict.route(v)
         overall_str = v.overall.value
 

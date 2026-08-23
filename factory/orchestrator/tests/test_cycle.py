@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 import cycle
 import herdr
 import tickets
@@ -154,13 +156,20 @@ def test_blocked_escalates_and_authors_ticket(tmp_path):
 
 
 def test_unparseable_verdict_routes_to_human_gate(tmp_path):
+    # maps to: neither the .verdict.yaml file nor the trailer yields a parseable
+    # verdict -> the orchestrator re-prompts the verifier exactly ONCE, then a still-
+    # unparseable re-prompt routes to HUMAN_GATE with the raw text surfaced (never-assume).
     unit = make_unit(tmp_path)
     m = herdr.MockHerdr()
     m.feed_read("impl-01", "impl output c1")
     m.feed_read("ver-01", "totally free text, no verdict")
+    m.feed_read("ver-01", "still no verdict after re-prompt")
     result, _commits, _wt = run(unit, m, tmp_path)
     assert result.outcome is cycle.CycleOutcome.HUMAN_GATE
-    assert "totally free text" in (result.raw_verdict or "")
+    assert "still no verdict after re-prompt" in (result.raw_verdict or "")
+    # the re-prompt was sent exactly once before the human gate
+    assert len(m.prompts["ver-01"]) == 2
+    assert "UNPARSEABLE" in m.prompts["ver-01"][1]
 
 
 def test_cap_reached_after_repeated_fail(tmp_path):
@@ -329,6 +338,95 @@ def test_blocked_persists_status_parked(tmp_path):
         next_esc_number=10,
     )
     assert tickets.parse_impl_file(unit.path).status == "parked"
+
+
+# ---- decision 15: deterministic verdict channel (trailer + bounded re-prompt) ----
+
+
+def test_trailer_only_pass_routes_to_done(tmp_path):
+    # maps to: trailer-only 'VERDICT overall=PASS' routes to DONE
+    unit = make_unit(tmp_path)
+    m = herdr.MockHerdr()
+    m.feed_read("impl-01", "impl output c1")
+    m.feed_read("ver-01", "review done\nVERDICT overall=PASS")
+    result, commits, worktree = run(unit, m, tmp_path)
+    assert result.outcome is cycle.CycleOutcome.DONE
+    assert result.final_cycle == 1
+    assert commits == [("impl-01", 1, "PASS", worktree)]
+
+
+def test_trailer_only_fail_routes_to_retry_with_fallback_feedback(tmp_path):
+    # maps to: trailer-only 'VERDICT overall=FAIL' routes to RETRY (empty feedback is
+    # acceptable — the trailer is routing-only, so the fallback feedback is used)
+    unit = make_unit(tmp_path)
+    m = herdr.MockHerdr()
+    m.feed_read("impl-01", "impl output c1")
+    m.feed_read("ver-01", "review done\nVERDICT overall=FAIL")
+    m.feed_read("impl-01", "impl output c2")
+    m.feed_read("ver-01", "review done\nVERDICT overall=PASS")
+    result, commits, worktree = run(unit, m, tmp_path, cap=3)
+    assert result.outcome is cycle.CycleOutcome.DONE
+    assert result.final_cycle == 2
+    # trailer is routing-only: no feedback, so the existing fallback is injected
+    cycle2_prompt = m.prompts["impl-01"][1]
+    assert "verifier FAIL (no concrete feedback)" in cycle2_prompt
+
+
+def test_trailer_only_blocked_routes_to_escalate(tmp_path):
+    # maps to: trailer-only 'VERDICT overall=BLOCKED' routes to ESCALATE
+    unit = make_unit(tmp_path)
+    m = herdr.MockHerdr()
+    m.feed_read("impl-01", "impl output c1")
+    m.feed_read("ver-01", "review done\nVERDICT overall=BLOCKED")
+    result, commits, worktree = run(unit, m, tmp_path)
+    assert result.outcome is cycle.CycleOutcome.ESCALATE
+    assert result.final_cycle == 1
+    esc = Path(result.escalation_paths[0])
+    assert "verifier BLOCKED (no reason given)" in esc.read_text()
+
+
+@pytest.mark.parametrize("token", ["PASS", "FAIL", "BLOCKED"])
+def test_trailer_only_never_human_gates_and_records_overall(tmp_path, token):
+    # maps to: for any trailer overall in {PASS,FAIL,BLOCKED} a trailer-only pane routes
+    # to the matching outcome (never a human gate) and records that overall.
+    unit = make_unit(tmp_path)
+    m = herdr.MockHerdr()
+    m.feed_read("impl-01", "c1")
+    m.feed_read("ver-01", f"review done\nVERDICT overall={token}")
+    result, commits, worktree = run(unit, m, tmp_path, cap=1)
+    assert result.outcome is not cycle.CycleOutcome.HUMAN_GATE
+    assert commits == [("impl-01", 1, token, worktree)]
+
+
+def test_reprompt_sent_once_then_parseable_routes_normally(tmp_path):
+    # maps to: a re-prompt that yields a parseable verdict (file or trailer) routes
+    # normally — no human gate
+    unit = make_unit(tmp_path)
+    m = herdr.MockHerdr()
+    m.feed_read("impl-01", "impl output c1")
+    m.feed_read("ver-01", "garbled, no verdict")  # first read: unparseable
+    m.feed_read("ver-01", "review done\nVERDICT overall=PASS")  # re-prompt read: parseable
+    result, commits, worktree = run(unit, m, tmp_path)
+    assert result.outcome is cycle.CycleOutcome.DONE
+    assert result.final_cycle == 1
+    # exactly one re-prompt was sent to the verifier pane
+    assert len(m.prompts["ver-01"]) == 2
+    assert "UNPARSEABLE" in m.prompts["ver-01"][1]
+
+
+def test_reprompt_still_unparseable_routes_to_human_gate(tmp_path):
+    # maps to: a re-prompt that is STILL unparseable routes to HUMAN_GATE with the raw
+    # text surfaced (never-assume; no second re-prompt)
+    unit = make_unit(tmp_path)
+    m = herdr.MockHerdr()
+    m.feed_read("impl-01", "impl output c1")
+    m.feed_read("ver-01", "garbled, no verdict")
+    m.feed_read("ver-01", "still garbled, no verdict")
+    result, commits, worktree = run(unit, m, tmp_path)
+    assert result.outcome is cycle.CycleOutcome.HUMAN_GATE
+    assert "still garbled" in (result.raw_verdict or "")
+    # exactly one re-prompt, no second
+    assert len(m.prompts["ver-01"]) == 2
 
 
 def test_in_progress_persisted_when_not_terminal(tmp_path):

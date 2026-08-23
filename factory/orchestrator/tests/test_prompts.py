@@ -89,6 +89,27 @@ def test_resolution_block_is_verbatim_and_attributed():
     assert "the answer text" in block
 
 
+def test_verifier_prompt_requires_trailer_as_last_line():
+    # maps to: verifier_prompt ends by requiring the line 'VERDICT overall=PASS|FAIL|BLOCKED'
+    # as the verifier's LAST reply line (alongside the existing file contract)
+    p = prompts.verifier_prompt(implementer_output="d", verify=[], cycle=1, resolution=None)
+    assert "VERDICT overall=PASS|FAIL|BLOCKED" in p
+    assert "LAST" in p or "last line" in p.lower()
+    # the trailer requirement comes after the existing file contract
+    assert p.index("VERDICT_FILE") < p.index("VERDICT overall=PASS|FAIL|BLOCKED")
+
+
+def test_reprompt_verifier_tells_verifier_previous_was_unparseable():
+    # maps to: a new prompt template tells the verifier its previous verdict was
+    # unparseable and instructs it to write exactly this to .verdict.yaml and end with
+    # 'VERDICT overall=X'
+    p = prompts.reprompt_verifier(cycle=1, resolution=None)
+    assert "UNPARSEABLE" in p
+    assert ".verdict.yaml" in p
+    assert "VERDICT overall=" in p
+    assert "overall:" in p
+
+
 def test_pr_fix_prompt_routes_reviewer_comments_and_requests_structured_dismissal():
     p = prompts.pr_fix_prompt(
         pr_number=12,
