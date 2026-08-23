@@ -91,26 +91,47 @@ def log_cycle(
         conn.close()
 
 
-_VALID_FILTERS = frozenset(_COLUMNS)
+_SQL_ALL = (
+    "SELECT effort, unit_id, branch, cycle_no, verdict, action, commit_sha, ts "
+    "FROM cycle_log ORDER BY cycle_no"
+)
+_SQL_BY_EFFORT = (
+    "SELECT effort, unit_id, branch, cycle_no, verdict, action, commit_sha, ts "
+    "FROM cycle_log WHERE effort = ? ORDER BY cycle_no"
+)
+_SQL_BY_UNIT = (
+    "SELECT effort, unit_id, branch, cycle_no, verdict, action, commit_sha, ts "
+    "FROM cycle_log WHERE unit_id = ? ORDER BY cycle_no"
+)
+_SQL_BY_EFFORT_UNIT = (
+    "SELECT effort, unit_id, branch, cycle_no, verdict, action, commit_sha, ts "
+    "FROM cycle_log WHERE effort = ? AND unit_id = ? ORDER BY cycle_no"
+)
 
 
-def query_cycles(db_path: str, **filters: object) -> list[dict[str, object]]:
-    """Return cycle_log rows matching the given column filters (e.g. ``unit_id=...``).
+def query_cycles(
+    db_path: str, *, effort: str | None = None, unit_id: str | None = None
+) -> list[dict[str, object]]:
+    """Return cycle_log rows, optionally filtered by effort and/or unit_id.
 
-    With no filters, returns every row. Rows are ordered by ``cycle_no``. Filter keys
-    must be real column names: they are interpolated into SQL, so they are checked
-    against a whitelist (values are parameterized with ``?``).
+    No dynamic SQL and no string concatenation: each query is one complete hardcoded
+    literal selected by which filters are given; filter values are parameterized with
+    ``?``. Injection is impossible by construction — no caller string ever reaches the
+    SQL text, so there is no guard to remove. Rows are ordered by ``cycle_no``.
     """
-    bad = set(filters) - _VALID_FILTERS
-    assert not bad, f"query_cycles: unknown column filter(s): {sorted(bad)}"
+    sql: str
+    params: tuple[object, ...]
+    if effort is not None and unit_id is not None:
+        sql, params = _SQL_BY_EFFORT_UNIT, (effort, unit_id)
+    elif effort is not None:
+        sql, params = _SQL_BY_EFFORT, (effort,)
+    elif unit_id is not None:
+        sql, params = _SQL_BY_UNIT, (unit_id,)
+    else:
+        sql, params = _SQL_ALL, ()
     conn = sqlite3.connect(db_path, timeout=30.0)
     try:
-        where = " AND ".join(f"{k} = ?" for k in filters)
-        sql = f"SELECT {', '.join(_COLUMNS)} FROM cycle_log"
-        if where:
-            sql += " WHERE " + where
-        sql += " ORDER BY cycle_no"
-        rows = conn.execute(sql, tuple(filters.values())).fetchall()
+        rows = conn.execute(sql, params).fetchall()
         return [dict(zip(_COLUMNS, r, strict=True)) for r in rows]
     finally:
         conn.close()
