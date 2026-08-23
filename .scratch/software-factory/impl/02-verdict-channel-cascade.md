@@ -1,36 +1,60 @@
 ---
 id: impl-02
-decision: "15 — deterministic verdict channel"
-title: "verdict channel: file→trailer→(re-prompt once)→HUMAN_GATE + verifier trailer/re-prompt prompt"
+decision: 15 — deterministic verdict channel
+title: 'verdict channel: file→trailer→(re-prompt once)→HUMAN_GATE + verifier trailer/re-prompt
+  prompt'
 scope_files:
-  - factory/orchestrator/cycle.py
-  - factory/orchestrator/tests/test_cycle.py
-  - factory/orchestrator/prompts.py
-  - factory/orchestrator/tests/test_prompts.py
+- factory/orchestrator/cycle.py
+- factory/orchestrator/tests/test_cycle.py
+- factory/orchestrator/prompts.py
+- factory/orchestrator/tests/test_prompts.py
 acceptance:
-  - story: "As the orchestrator, I always get a parseable routing verdict or surface the never-assume human gate — never a silent guess"
-    behaviors:
-      - { behavior: "a verifier pane whose only signal is the trailer 'VERDICT overall=PASS' (no .verdict.yaml file, no fenced YAML) routes the cycle to DONE", outcome: success }
-      - { behavior: "a verifier pane whose only signal is the trailer 'VERDICT overall=FAIL' routes to RETRY (empty feedback is acceptable — the trailer is routing-only)", outcome: success }
-      - { behavior: "a verifier pane whose only signal is the trailer 'VERDICT overall=BLOCKED' routes to ESCALATE", outcome: success }
-      - { behavior: "when neither the .verdict.yaml file nor the trailer yields a parseable verdict, the orchestrator re-prompts the verifier exactly ONCE", outcome: success }
-      - { behavior: "a re-prompt that yields a parseable verdict (file or trailer) routes normally — no human gate", outcome: success }
-      - { behavior: "a re-prompt that is STILL unparseable routes to HUMAN_GATE with the raw text surfaced (never-assume; no second re-prompt)", outcome: failure }
-      - { behavior: "verifier_prompt ends by requiring the line 'VERDICT overall=PASS|FAIL|BLOCKED' as the verifier's LAST reply line (alongside the existing file contract)", outcome: success }
-  - story: "As the verifier being re-prompted, I receive a strict instruction to write exactly the verdict file and trailer"
-    behaviors:
-      - { behavior: "a new prompt template exists that tells the verifier its previous verdict was unparseable and instructs it to write exactly this to .verdict.yaml and end with 'VERDICT overall=X'", outcome: success }
+- story: As the orchestrator, I always get a parseable routing verdict or surface
+    the never-assume human gate — never a silent guess
+  behaviors:
+  - behavior: a verifier pane whose only signal is the trailer 'VERDICT overall=PASS'
+      (no .verdict.yaml file, no fenced YAML) routes the cycle to DONE
+    outcome: success
+  - behavior: a verifier pane whose only signal is the trailer 'VERDICT overall=FAIL'
+      routes to RETRY (empty feedback is acceptable — the trailer is routing-only)
+    outcome: success
+  - behavior: a verifier pane whose only signal is the trailer 'VERDICT overall=BLOCKED'
+      routes to ESCALATE
+    outcome: success
+  - behavior: when neither the .verdict.yaml file nor the trailer yields a parseable
+      verdict, the orchestrator re-prompts the verifier exactly ONCE
+    outcome: success
+  - behavior: a re-prompt that yields a parseable verdict (file or trailer) routes
+      normally — no human gate
+    outcome: success
+  - behavior: a re-prompt that is STILL unparseable routes to HUMAN_GATE with the
+      raw text surfaced (never-assume; no second re-prompt)
+    outcome: failure
+  - behavior: verifier_prompt ends by requiring the line 'VERDICT overall=PASS|FAIL|BLOCKED'
+      as the verifier's LAST reply line (alongside the existing file contract)
+    outcome: success
+- story: As the verifier being re-prompted, I receive a strict instruction to write
+    exactly the verdict file and trailer
+  behaviors:
+  - behavior: a new prompt template exists that tells the verifier its previous verdict
+      was unparseable and instructs it to write exactly this to .verdict.yaml and
+      end with 'VERDICT overall=X'
+    outcome: success
 verify:
-  - "behaviors captured by tests; tests map 1:1 to acceptance.behaviors"
-  - "the re-prompt happens EXACTLY once (assert the verifier pane was prompted exactly one extra time after the first unparseable read), never zero, never unbounded"
-  - "file precedence is preserved: when .verdict.yaml is present and parseable, the cycle routes by the file even if the trailer is missing or garbled (existing test_verdict_file_takes_precedence_over_pane_text must still pass)"
-  - "the per-cycle commit + value-only frontmatter + run.log cadence is unchanged; only the verdict-parse step widens"
+- behaviors captured by tests; tests map 1:1 to acceptance.behaviors
+- the re-prompt happens EXACTLY once (assert the verifier pane was prompted exactly
+  one extra time after the first unparseable read), never zero, never unbounded
+- 'file precedence is preserved: when .verdict.yaml is present and parseable, the
+  cycle routes by the file even if the trailer is missing or garbled (existing test_verdict_file_takes_precedence_over_pane_text
+  must still pass)'
+- the per-cycle commit + value-only frontmatter + run.log cadence is unchanged; only
+  the verdict-parse step widens
 model: deepseek-v4-flash:cloud
 depends_on:
-  - impl-01
-status: open
-cycle: 0
-last_verdict: ""
+- impl-01
+status: done
+cycle: 1
+last_verdict: PASS
 ---
 Make the verdict **channel** reliable end-to-end in the cycle loop and the verifier
 prompt. Touch only `factory/orchestrator/cycle.py`,
