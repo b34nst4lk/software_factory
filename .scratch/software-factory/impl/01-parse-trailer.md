@@ -1,43 +1,29 @@
 ---
 id: impl-01
-decision: 15 — deterministic verdict channel
-title: verdict.parse_trailer reads the verifier's last-line `VERDICT overall=X`
+decision: "15 — deterministic verdict channel"
+title: "verdict.parse_trailer reads the verifier's last-line `VERDICT overall=X`"
 scope_files:
-- factory/orchestrator/verdict.py
-- factory/orchestrator/tests/test_verdict.py
+  - factory/orchestrator/verdict.py
+  - factory/orchestrator/tests/test_verdict.py
 acceptance:
-- story: As the orchestrator, I can recover a routing verdict from a pane whose only
-    parseable signal is a one-line trailer
-  behaviors:
-  - behavior: parse_trailer(text ending in 'VERDICT overall=PASS') returns Overall.PASS
-    outcome: success
-  - behavior: parse_trailer(text ending in 'VERDICT overall=FAIL') returns Overall.FAIL
-    outcome: success
-  - behavior: parse_trailer(text ending in 'VERDICT overall=BLOCKED') returns Overall.BLOCKED
-    outcome: success
-  - behavior: parse_trailer(text with no 'VERDICT overall=' line) returns None
-    outcome: failure
-  - behavior: parse_trailer ignores a 'VERDICT overall=PASS' line that is NOT the
-      last non-empty line
-    outcome: failure
-  - behavior: parse_trailer tolerates trailing whitespace, surrounding spaces around
-      '=' (e.g. 'VERDICT overall = PASS'), and is case-insensitive on the overall
-      token
-    outcome: success
-  - behavior: parse_trailer returns None for an unknown overall token (e.g. 'VERDICT
-      overall=WAT')
-    outcome: failure
+  - story: "As the orchestrator, I can recover a routing verdict from a pane whose only parseable signal is a one-line trailer"
+    behaviors:
+      - { behavior: "parse_trailer(text ending in 'VERDICT overall=PASS') returns Overall.PASS",   outcome: success }
+      - { behavior: "parse_trailer(text ending in 'VERDICT overall=FAIL') returns Overall.FAIL",   outcome: success }
+      - { behavior: "parse_trailer(text ending in 'VERDICT overall=BLOCKED') returns Overall.BLOCKED", outcome: success }
+      - { behavior: "parse_trailer(text with no 'VERDICT overall=' line) returns None",             outcome: failure }
+      - { behavior: "parse_trailer ignores a 'VERDICT overall=PASS' line that is NOT the last non-empty line", outcome: failure }
+      - { behavior: "parse_trailer tolerates trailing whitespace, surrounding spaces around '=' (e.g. 'VERDICT overall = PASS'), and is case-insensitive on the overall token", outcome: success }
+      - { behavior: "parse_trailer returns None for an unknown overall token (e.g. 'VERDICT overall=WAT')", outcome: failure }
 verify:
-- behaviors captured by tests; tests map 1:1 to acceptance.behaviors
-- a property test asserts parse_trailer maps every 'VERDICT overall=X' last line (X
-  in {PASS,FAIL,BLOCKED}) to the matching Overall, and any other last line to None
-- parse_trailer does not call into file/fenced-YAML parsing; it is a pure text scan
-  of the last non-empty line
+  - "behaviors captured by tests; tests map 1:1 to acceptance.behaviors"
+  - "a property test asserts parse_trailer maps every 'VERDICT overall=X' last line (X in {PASS,FAIL,BLOCKED}) to the matching Overall, and any other last line to None"
+  - "parse_trailer does not call into file/fenced-YAML parsing; it is a pure text scan of the last non-empty line"
 model: deepseek-v4-flash:cloud
 depends_on: []
-status: done
-cycle: 1
-last_verdict: PASS
+status: open
+cycle: 0
+last_verdict: ""
 ---
 Add `parse_trailer(text: str) -> Overall | None` to `factory/orchestrator/verdict.py`
 and its tests in `factory/orchestrator/tests/test_verdict.py`. Stay strictly within
