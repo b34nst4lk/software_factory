@@ -138,9 +138,7 @@ def test_logged_row_round_trips_through_query(
     # {DONE,RETRY,ESCALATE,HUMAN_GATE,CAP_REACHED}, a logged row round-trips through a
     # query (property/fuzz).
     db_path = str(tmp_path / f"db-{next(_db_counter)}")
-    state.log_cycle(
-        db_path, effort, unit_id, branch, cycle_no, verdict, action, commit_sha, ts="t"
-    )
+    state.log_cycle(db_path, effort, unit_id, branch, cycle_no, verdict, action, commit_sha, ts="t")
     rows = state.query_cycles(db_path, unit_id=unit_id)
     assert len(rows) == 1
     row = rows[0]
