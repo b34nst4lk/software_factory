@@ -89,10 +89,11 @@ def verifier_prompt(
         "and a `gates:` list (no fence, no wrapping)."
     )
     parts.append(
-        "Your reply's LAST line must be exactly one routing trailer: "
-        "`VERDICT overall=PASS|FAIL|BLOCKED` (matching the file's `overall`). This "
-        "one-line trailer is how the orchestrator routes even if the file is missing "
-        "or malformed; the file carries the long feedback/escalation text."
+        "Your reply's LAST line must be exactly one routing trailer. Use one of "
+        "these concrete forms: `VERDICT overall=PASS`, `VERDICT overall=FAIL`, or "
+        "`VERDICT overall=BLOCKED` (matching the file's `overall`). This one-line "
+        "trailer is how the orchestrator routes even if the file is missing or "
+        "malformed; the file carries the long feedback/escalation text."
     )
     parts.append("--- implementer output ---")
     parts.append(implementer_output)
@@ -116,19 +117,22 @@ def reprompt_verifier(*, cycle: int, resolution: str | None = None) -> str:
         "re-review the implementer output; just re-emit a valid verdict."
     )
     parts.append(
-        "Write EXACTLY this to `.verdict.yaml` in the worktree (valid YAML, no fence):"
+        "Write a valid YAML verdict to `.verdict.yaml` in the worktree using this "
+        "template (no fence). Replace `<VERDICT>` and `<STATUS>` with exactly one of "
+        "`PASS`, `FAIL`, or `BLOCKED`:"
     )
     parts.append("```yaml")
-    parts.append("overall: PASS | FAIL | BLOCKED")
+    parts.append("overall: <VERDICT>")
     parts.append("gates:")
     parts.append("  - gate: <name>")
-    parts.append("    status: PASS | FAIL | BLOCKED")
+    parts.append("    status: <STATUS>")
     parts.append('    feedback: "<concrete fix>"   # on FAIL')
     parts.append('    escalation: "<ambiguity>"    # on BLOCKED')
     parts.append("```")
     parts.append(
-        "Then end your reply with exactly one line as the LAST line: "
-        "`VERDICT overall=PASS|FAIL|BLOCKED` (matching the file's `overall`)."
+        "Then end your reply with exactly one line as the LAST line: one of "
+        "`VERDICT overall=PASS`, `VERDICT overall=FAIL`, or "
+        "`VERDICT overall=BLOCKED` (matching the file's `overall`)."
     )
     return "\n".join(parts) + "\n"
 
