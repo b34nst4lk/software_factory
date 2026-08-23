@@ -46,15 +46,23 @@ def open_db(db_path: str) -> sqlite3.Connection:
 
     Idempotent: ``CREATE TABLE IF NOT EXISTS`` — calling twice does not error or
     duplicate the table. Sets ``journal_mode=WAL`` and ``user_version`` (for future
-    stepwise migrations).
+    stepwise migrations). Safe under concurrent access: a busy timeout lets a reader
+    wait on a writer instead of raising ``database is locked``.
     """
     parent = os.path.dirname(db_path)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.execute(_SCHEMA)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA user_version = 1")
+    # Only switch to WAL if it is not already WAL (re-setting it re-acquires a lock).
+    mode = conn.execute("PRAGMA journal_mode").fetchone()
+    if not mode or str(mode[0]).lower() != "wal":
+        conn.execute("PRAGMA journal_mode=WAL")
+    # Never downgrade user_version: a future migration that raised it must stay raised.
+    ver = conn.execute("PRAGMA user_version").fetchone()
+    if not ver or ver[0] < 1:
+        conn.execute("PRAGMA user_version = 1")
     conn.commit()
     return conn
 
@@ -83,12 +91,19 @@ def log_cycle(
         conn.close()
 
 
+_VALID_FILTERS = frozenset(_COLUMNS)
+
+
 def query_cycles(db_path: str, **filters: object) -> list[dict[str, object]]:
     """Return cycle_log rows matching the given column filters (e.g. ``unit_id=...``).
 
-    With no filters, returns every row. Rows are ordered by ``cycle_no``.
+    With no filters, returns every row. Rows are ordered by ``cycle_no``. Filter keys
+    must be real column names: they are interpolated into SQL, so they are checked
+    against a whitelist (values are parameterized with ``?``).
     """
-    conn = sqlite3.connect(db_path)
+    bad = set(filters) - _VALID_FILTERS
+    assert not bad, f"query_cycles: unknown column filter(s): {sorted(bad)}"
+    conn = sqlite3.connect(db_path, timeout=30.0)
     try:
         where = " AND ".join(f"{k} = ?" for k in filters)
         sql = f"SELECT {', '.join(_COLUMNS)} FROM cycle_log"

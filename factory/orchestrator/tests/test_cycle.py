@@ -439,6 +439,20 @@ def test_reprompt_still_unparseable_routes_to_human_gate(tmp_path):
     assert len(m.prompts["ver-01"]) == 2
 
 
+def test_human_gate_writes_no_narrative_row(tmp_path):
+    # maps to: HUMAN_GATE writes no narrative row (no commit happened; one row per
+    # COMMITTED cycle, so a re-run on the gate's "continue" does not duplicate).
+    unit = make_unit(tmp_path)
+    m = herdr.MockHerdr()
+    m.feed_read("impl-01", "impl output c1")
+    m.feed_read("ver-01", "garbled, no verdict")
+    m.feed_read("ver-01", "still garbled, no verdict")
+    result, _commits, _wt = run(unit, m, tmp_path)
+    assert result.outcome is cycle.CycleOutcome.HUMAN_GATE
+    # No commit happened, so log_cycle never ran and the DB file was never created.
+    assert not (tmp_path / "state.db").exists()
+
+
 def test_in_progress_persisted_when_not_terminal(tmp_path):
     # cap=1, FAIL -> CAP_REACHED: status written in_progress at cycle start, no terminal write
     unit = make_unit(tmp_path)

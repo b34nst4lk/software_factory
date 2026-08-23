@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import config
 
 
@@ -26,3 +28,15 @@ def test_impl_and_issues_dirs_derive_from_effort():
     c = config.default("/repo", "software-factory", "g")
     assert c.impl_dir.endswith(".scratch/software-factory/impl")
     assert c.issues_dir.endswith(".scratch/software-factory/issues")
+
+
+def test_default_db_path_resolves_to_factory_state_db():
+    # maps to: config.db_path defaults to <repo>/.factory/state.db so live runs log.
+    c = config.default("/repo", "software-factory", "g")
+    assert c.db_path == "/repo/.factory/state.db"
+
+
+def test_config_without_db_path_is_an_invalid_state():
+    # maps to: make invalid states impossible — a Config with no db_path asserts.
+    with pytest.raises(AssertionError):
+        config.Config(repo_path="/repo", effort="e", impl_glob="g")

@@ -119,6 +119,7 @@ def run_cycle(
     cap_override: int | None = None,
     db_path: str = "",
 ) -> CycleResult:
+    assert db_path, "run_cycle requires a db_path (the per-repo narrative DB)"
     cap = cap_override if cap_override is not None else config.cycle_cap
     prior_feedback: str | None = None
     # Seed from the persisted frontmatter `cycle` (git-as-state: the frontmatter is the
@@ -177,20 +178,8 @@ def run_cycle(
             ver_out = herdr.agent_read(panes.ver_name, config.read_lines)
             v = _parse_verdict(ver_out, worktree)
             if v.overall is verdict.Overall.UNPARSEABLE:
-                # never-assume: no commit (nothing to commit), but still record the
-                # narrative row so the DB has one row per cycle.
-                if db_path:
-                    state.log_cycle(
-                        db_path,
-                        effort=config.effort,
-                        unit_id=unit.id,
-                        branch=branch,
-                        cycle_no=cycle_no,
-                        verdict="UNPARSEABLE",
-                        action="HUMAN_GATE",
-                        commit_sha="",
-                        ts=str(time.time()),
-                    )
+                # never-assume: no commit happened, so no narrative row. The invariant is
+                # one row per COMMITTED cycle; the cycle re-runs on the gate's "continue".
                 return CycleResult(CycleOutcome.HUMAN_GATE, unit.id, cycle_no, raw_verdict=ver_out)
         action = verdict.route(v)
         overall_str = v.overall.value
@@ -217,7 +206,9 @@ def run_cycle(
             action_str = "CAP_REACHED"
         else:
             action_str = action.value.upper()
-        if db_path:
+        # Narrative is best-effort: a DB error must never abort the spine after the
+        # cycle's commit has already landed.
+        try:
             state.log_cycle(
                 db_path,
                 effort=config.effort,
@@ -228,6 +219,11 @@ def run_cycle(
                 action=action_str,
                 commit_sha=commit_sha,
                 ts=str(time.time()),
+            )
+        except Exception as exc:  # noqa: BLE001 - best-effort narrative, never fatal
+            print(
+                f"warning: log_cycle failed ({exc!r}); "
+                f"{unit.id} c{cycle_no} committed but unlogged"
             )
 
         if action is verdict.Action.DONE:
