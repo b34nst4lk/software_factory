@@ -11,17 +11,25 @@ The orchestrator is the thin spine precisely because it is the only component th
 
 ## Run
 
+The one-command launcher is `start-factory.sh` at the repo root. The intended
+topology is **one herdr session**: your wayfinder pi (glm-5.2) runs there, you split a
+pane and run the launcher in it, and the orchestrator creates the implementer/verifier
+panes as siblings in the **same** session — all visible in one herdr UI.
+
 ```bash
 # toolchain (one-time)
 python3 -m venv .venv && .venv/bin/pip install ruff black pytest mypy coverage pyyaml hypothesis types-PyYAML
 
-# real run (needs herdr panes + live cloud models; 07d)
-.venv/bin/python -m cli software-factory \
-    --repo "$(git rev-parse --show-toplevel)" \
-    --pr-stage off            # off for throwaway smoke runs (no real GitHub PR)
+# one-session flow (recommended):
+herdr --session factory                          # terminal A: your wayfinder pi (glm-5.2)
+#   inside that session, split a pane and run:
+./start-factory.sh software-factory --session factory   # orchestrator runs here (stdin gates live)
+herdr session attach factory                     # (another terminal) watch the sidebar + impl/ver panes
 
-# mocked run (deterministic stubs — tests / dry runs, no herdr/gh/git)
-.venv/bin/python -m cli software-factory --mock --pr-stage off
+# the launcher reuses an existing herdr server for the session if one is running;
+# otherwise it starts a fresh headless one (and stops it on exit). --mock = dry run.
+./start-factory.sh --mock                         # deterministic stubs, no herdr/models
+./start-factory.sh --help                         # full runbook
 
 # tests + toolchain gate
 .venv/bin/python -m pytest tests/
@@ -29,10 +37,18 @@ python3 -m venv .venv && .venv/bin/pip install ruff black pytest mypy coverage p
 .venv/bin/coverage run -m pytest tests/ && .venv/bin/coverage report --fail-under=90
 ```
 
-CLI flags: `<effort>` (slug under `.scratch/`), optional `impl-glob`
+The launcher is a thin wrapper over the CLI entrypoint (`python -m cli`). CLI flags:
+`<effort>` (slug under `.scratch/`), optional `impl-glob`
 (default `.scratch/<effort>/impl/*.md`), `--cycle-cap` (default 5), `--no-approve`
 (skip pi's interactive trust prompt), `--mock` (herdr/gh/gitops stubs),
-`--pr-stage on|off`, `--repo`, `--gh-repo O/R`, `--worktree-parent`.
+`--pr-stage on|off`, `--repo`, `--gh-repo O/R`, `--worktree-parent`, `--herdr-session`,
+`--implementer-env-hint`. The launcher passes the common ones; use the CLI directly for
+the rest.
+
+**Prereqs**: impl tickets at `.scratch/<effort>/impl/*.md` produced by
+`/skill:factory-to-tickets <decision>` (and committed to `main`, since worktrees branch
+from `main`); herdr + `herdr integration install pi`; the three cloud models in
+`~/.pi/agent/models.json`.
 
 ## The invariants the spine guarantees (05, ticket 09)
 

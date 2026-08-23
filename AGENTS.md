@@ -36,6 +36,6 @@ Cross-model review is enforced: implementer and verifier are different model fam
 
 ## Working in this repo
 
-- Run `herdr integration install pi` + `herdr integration status` before the first end-to-end run (ticket 07).
-- The orchestrator language, the to-tickets skill contract, and the feedback/escalation protocol are **open design decisions** (tickets 05, 04, 06) — don't implement them until those grilling tickets resolve.
+- Tickets 04–06 are resolved and 07 is built + smoke-green live; the orchestrator (`factory/orchestrator/`), the `factory-to-tickets` skill, and the `start-factory.sh` launcher all exist. Open frontier: 15 (deterministic verdict channel), 16 (interrupted-run resumability), 17 (git-as-state durability), 14 (test-strength gate, grilling).
+- Run the factory: `./start-factory.sh software-factory --session factory` inside a herdr session that's running your wayfinder pi (one session — the orchestrator creates implementer/verifier panes as siblings). See `./start-factory.sh --help` and `factory/orchestrator/README.md`.
 - Keep the map's Notes in sync with settled decisions; append closed tickets to Decisions-so-far.

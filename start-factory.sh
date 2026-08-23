@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 # start-factory.sh — start the software factory on the repo this is called from.
 #
-# Starts a fresh headless herdr server and runs the deterministic orchestrator against
-# the impl tickets at .scratch/<effort>/impl/*.md. Foreground: you see the cycle
-# outcomes + stdin gates live; on exit the herdr server is stopped.
+# Reuses an existing herdr server for the session if one is running; otherwise starts
+# a fresh headless one (and stops it on exit). Foreground: you see the cycle outcomes +
+# stdin gates live.
+#
+# One-session flow (recommended): run your wayfinder pi in a herdr session, split a
+# pane, and run this script there — the orchestrator runs in that pane (tty for the
+# stdin gates) and creates the implementer/verifier panes as siblings in the SAME
+# session, all visible in one herdr UI:
+#
+#   terminal A:  herdr --session factory          # your wayfinder pi (glm-5.2)
+#     (in that session, split a pane and run):
+#                ./start-factory.sh software-factory --session factory
+#   watch:       herdr session attach factory    # sidebar + impl/ver/orchestrator panes
 #
 # Usage (from the repo root, or anywhere under it):
 #   ./start-factory.sh [effort] [--pr-stage on|off] [--env-hint TEXT]
@@ -14,7 +24,8 @@
 #   --env-hint   repo-specific test-runner hint injected into the implementer prompt
 #                (default: the python pytest+hypothesis hint; the orchestrator symlinks
 #                the repo's .venv into each worktree)
-#   --session    herdr session name (default: factory-<timestamp>, fresh per run)
+#   --session    herdr session name (default: factory-<timestamp>, fresh per run). Pass
+#                your main-pi session name to run the factory INSIDE it (reuses its server).
 #   --cycle-cap  cycle ceiling (default 5)
 #   --mock       deterministic stubs — no herdr server, no live models (dry run)
 #   --no-approve pass --approve to worker pi panes (default on for autonomous runs)
@@ -90,29 +101,39 @@ if [ "$MOCK" -eq 1 ]; then
   cd "$ORCH" && exec "$PY" -m cli "${ARGS[@]}" --mock
 fi
 
-# ---- real mode: start a fresh headless herdr server ----
+# ---- real mode: reuse an existing herdr server, or start a fresh headless one ----
 ARGS+=(--herdr-session "$SESSION")
 
-echo ">> starting headless herdr server (session $SESSION)…"
-setsid herdr --session "$SESSION" server >"/tmp/herdr-$SESSION.log" 2>&1 < /dev/null &
-HERDR_PID=$!
+server_up() {
+  # A session's server is up iff `workspace list` returns a result (not server_not_running).
+  herdr --session "$1" workspace list 2>/dev/null | grep -q '"workspaces"'
+}
+
+STARTED_SERVER=0
 cleanup() {
+  [ "$STARTED_SERVER" -eq 1 ] || return 0
   echo ">> stopping herdr server (session $SESSION)…"
   herdr --session "$SESSION" server stop >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
-# wait for the socket
-for _ in $(seq 1 20); do
-  [ -S "$HOME/.config/herdr/sessions/$SESSION/herdr.sock" ] && break
-  sleep 0.5
-done
-if ! [ -S "$HOME/.config/herdr/sessions/$SESSION/herdr.sock" ]; then
-  echo "ERR: herdr server socket did not appear — see /tmp/herdr-$SESSION.log" >&2
-  exit 1
+if server_up "$SESSION"; then
+  echo ">> reusing the existing herdr server (session $SESSION) — run inside it or watch:"
+  echo ">>   herdr session attach $SESSION   (or: herdr --session $SESSION)"
+else
+  echo ">> starting headless herdr server (session $SESSION)…"
+  setsid herdr --session "$SESSION" server >"/tmp/herdr-$SESSION.log" 2>&1 < /dev/null &
+  STARTED_SERVER=1
+  for _ in $(seq 1 20); do
+    server_up "$SESSION" && break
+    sleep 0.5
+  done
+  if ! server_up "$SESSION"; then
+    echo "ERR: herdr server did not come up — see /tmp/herdr-$SESSION.log" >&2
+    exit 1
+  fi
+  echo ">> herdr server up. Log: /tmp/herdr-$SESSION.log; watch: herdr --session $SESSION"
 fi
-echo ">> herdr server up (socket ok). Log: /tmp/herdr-$SESSION.log"
-echo ">> watch the sidebar: herdr --session $SESSION   (in another terminal)"
 echo ">> orchestrator log: $RUN_LOG"
 echo ">> starting orchestrator (foreground). Ctrl-C to stop."
 echo
