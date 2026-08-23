@@ -1,7 +1,7 @@
 # 15 — deterministic verdict channel
 
 Type: task
-Status: open
+Status: resolved
 Blocked by:
 Graduated from: 07 (live smoke observations). Next frontier after 07.
 
@@ -38,5 +38,25 @@ a malformed file + good trailer, etc.). Updates `prompts.verifier_prompt` to req
 trailer as the last line.
 
 ## Answer
+
+Resolved 2026-08-21 (design settled via the 07 smoke + the verdict/resumability grilling;
+no further wayfinder exploration needed — this is a build task). The deterministic verdict
+channel is **a + b** (detail in the Build section above):
+
+1. **File contract**: the verifier writes `.verdict.yaml` (raw YAML: `overall` + `gates`)
+   and replies `VERDICT_FILE: .verdict.yaml`; the orchestrator reads it.
+2. **Compact routing trailer**: the verifier's **last line** is `VERDICT overall=PASS|FAIL|BLOCKED`
+   — one short line that survives any pane width; the orchestrator parses it for **routing**
+   (PASS→done / FAIL→retry / BLOCKED→escalate) even when the file is missing/malformed. The
+   long `feedback`/`escalation` text comes from the file (best-effort).
+3. **Bounded re-prompt**: if neither file nor trailer yields a parseable verdict, re-prompt
+   the verifier **once** with a strict "write exactly this to `.verdict.yaml` and end with
+   `VERDICT overall=X`; your previous verdict was unparseable." If still no parseable
+   verdict → the existing never-assume **human gate** (no silent guess).
+
+`verdict.py` gains `parse_trailer(text) -> Overall | None`; `cycle._parse_verdict` becomes
+file → trailer → (re-prompt once) → file/trailer → HUMAN_GATE; `prompts.verifier_prompt`
+requires the trailer as the last line. Testable in `--mock`. Subsumes the "cycle-1 file
+not written" observation from the smoke.
 
 <!-- filled when built -->
