@@ -1,7 +1,7 @@
 # 17 — git-as-state durability: per-cycle commits must land on the impl/NN branch
 
 Type: task
-Status: open
+Status: resolved
 Blocked by:
 Found by: 07 (live smoke re-run via start-factory.sh). Adjacent to 16.
 
@@ -46,4 +46,56 @@ This defeats the spine's reason for existing: git-as-state integrity.
 
 ## Answer
 
-<!-- filled when fixed -->
+Resolved 2026-08-23 via grilling (Wayfinder). The original "dangling-commit / ref-not-
+advancing" concern is **resolved by current code** — `worktree_add` uses `git worktree add -b
+impl/NN` (attached, not detached) and this run's refs advanced correctly (impl-01@280cec8,
+impl-02@7d680f3). 17's center therefore shifted (this run's evidence) to **commit content**
++ the **`run.log` narrative**.
+
+The decision (config-fork handling is **deferred** to ticket 20 — Parameterization):
+
+1. **Ref-advance guarantee (lock it)**: add a regression assertion that after each cycle
+   `impl/NN` points at the just-made commit, so a future regression to dangling commits
+   fails loudly. No further ref-advance work.
+
+2. **`run.log` → SQLite `cycle_log` DB** (replaces the tracked append-only `run.log`):
+   - One DB per repo at `<repo>/.factory/state.db`. `.factory/` is **gitignored wholesale**
+     (local runtime state, not git-as-state); today it holds only `state.db`.
+   - One DB per repo (not per effort), with `effort` as a column, so it tracks across all
+     branches/units/cycles in the project.
+   - Schema (one table):
+     `cycle_log(effort TEXT, unit_id TEXT, branch TEXT, cycle_no INT, verdict TEXT,
+     action TEXT, commit_sha TEXT, ts TEXT)` — one row per cycle. `verdict` =
+     PASS/FAIL/BLOCKED/UNPARSEABLE (frontmatter `last_verdict` parity); `action` =
+     DONE/RETRY/ESCALATE/HUMAN_GATE/CAP_REACHED.
+   - Create-on-open via `CREATE TABLE IF NOT EXISTS`; `PRAGMA user_version` for stepwise
+     migrate-on-open (no framework yet); `PRAGMA journal_mode=WAL` for concurrent reads.
+   - Orchestrator (runs at root, knows `repo_path`) computes `db_path` and **threads it
+     into `run_cycle`** (like `worktree`/`issues_dir`); `state.log_cycle(...)` writes one
+     row per cycle right after `commit_cycle` (so `commit_sha` is known).
+
+3. **Discard `run.log` entirely**: delete `append_run_log`; `commit_cycle` stops force-adding
+   it; the guard's `run.log` append-only rule is **removed**; `.gitignore` drops `!run.log`.
+   Sweep existing `run.log` files already on `main`/branches.
+
+4. **Explicit-path staging** (never `git add -A` / `git add .`): `commit_cycle` stages
+   **exactly** `{impl-ticket} ∪ scope_files`, each by explicit path. A new file the
+   implementer creates must already be named in `scope_files` (the existing `to-tickets`
+   contract); a file not in `scope_files` is not committed and is a scope violation the
+   verifier flags. (Root cause this run: `git add -A` swept `.verdict.yaml` and a `.venv`
+   symlink that weren't effectively gitignored — `.verdict.yaml` not yet ignored, `.venv/`
+     dir-pattern didn't match the symlink. Gitignore-alone is a fragile gate.)
+
+5. **Guard rule (formalize-when-discovered)**: the Husky guard **rejects** a commit whose
+   staged paths are **not** a subset of `{impl-ticket} ∪ scope_files`. Hard denylist
+   regardless: `.verdict.yaml`, `.verdict.yml`, `.venv`, `*.db`, `__pycache__`. The guard
+   — not gitignore — is the real gate against runtime-artifact cruft.
+
+6. **Deferred to ticket 20 (Parameterization)**: how root-level **config** (committed vs
+   gitignored, worktree inheritance) is handled is explicitly deferred and designed
+   holistically for multi-repo use there. 17 introduces only the gitignored `.factory/`
+   runtime-state folder + the orchestrator-threading pattern, which does not paint into a
+   corner for a future committed root config.
+
+Adjacent findings filed separately: `depends_on` doesn't propagate dependency code →
+ticket 19; root-config parameterization → ticket 20.
