@@ -17,6 +17,7 @@ import contextlib
 import dataclasses
 import enum
 import os
+import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -185,10 +186,31 @@ class Orchestrator:
         return os.path.join(st.worktree, rel)
 
     def _commit_fn(self, st: UnitState) -> cycle.CommitFn:
-        def commit(unit_id: str, c: int, overall: str, worktree: str) -> None:
+        def commit(unit_id: str, c: int, overall: str, worktree: str) -> str:
             self.gitops.commit_cycle(worktree, f"{unit_id} c{c} {overall}")
+            return self._head_sha(worktree)
 
         return commit
+
+    def _head_sha(self, worktree: str) -> str:
+        """The worktree HEAD sha after the per-cycle commit (decision 17 narrative).
+
+        Best-effort: in a real git worktree this is ``git rev-parse HEAD``; in ``--mock``
+        (no repo) it falls back to a sentinel so the narrative row still carries a sha.
+        """
+        try:
+            res = subprocess.run(
+                ["git", "-C", worktree, "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            sha = res.stdout.strip()
+            if sha:
+                return sha
+        except Exception:
+            pass
+        return "unknown"
 
     def _run_one(self, st: UnitState, done: set[str], *, resolution: str | None) -> None:
         result = cycle.run_cycle(
@@ -203,6 +225,7 @@ class Orchestrator:
             next_esc_number=self.next_esc_number,
             resolution=resolution,
             cap_override=st.cap_override,
+            db_path=self.config.db_path,
         )
         st.last_outcome = result.outcome.value
         if result.outcome is cycle.CycleOutcome.DONE:

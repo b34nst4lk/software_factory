@@ -35,3 +35,6 @@ htmlcov/
 # committing a stale .verdict.yaml would let a later run read a leftover PASS verdict)
 .verdict.yaml
 .verdict.yml
+
+# Per-repo narrative DB (decision 17) — local runtime state, never committed
+.factory/
