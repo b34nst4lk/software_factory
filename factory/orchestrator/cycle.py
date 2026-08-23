@@ -171,9 +171,7 @@ def run_cycle(
             ver_out = herdr.agent_read(panes.ver_name, config.read_lines)
             v = _parse_verdict(ver_out, worktree)
             if v.overall is verdict.Overall.UNPARSEABLE:
-                return CycleResult(
-                    CycleOutcome.HUMAN_GATE, unit.id, cycle_no, raw_verdict=ver_out
-                )
+                return CycleResult(CycleOutcome.HUMAN_GATE, unit.id, cycle_no, raw_verdict=ver_out)
         action = verdict.route(v)
         overall_str = v.overall.value
 
