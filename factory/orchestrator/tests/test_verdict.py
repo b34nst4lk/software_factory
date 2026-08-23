@@ -241,6 +241,13 @@ def test_parse_trailer_returns_none_for_unknown_overall_token():
     assert verdict.parse_trailer("VERDICT overall=WAT") is None
 
 
+def test_parse_trailer_rejects_internal_unparseable_token():
+    # Regression: UNPARSEABLE is an internal Overall member, not a routing verdict.
+    # The trailer channel carries only PASS/FAIL/BLOCKED; it must not leak UNPARSEABLE.
+    # maps to: parse_trailer returns None for an unknown overall token (e.g. 'VERDICT overall=WAT')
+    assert verdict.parse_trailer("VERDICT overall=UNPARSEABLE") is None
+
+
 @given(
     prose=st.text(alphabet=st.characters(blacklist_categories=["Cs"]), max_size=200),
     token=st.sampled_from(["PASS", "FAIL", "BLOCKED"]),
@@ -270,6 +277,6 @@ def test_parse_trailer_property_non_trailer_returns_none(prose, last):
     # maps to: for any other last line it returns None.
     # Constrain the last line so it cannot itself be a valid trailer (which would
     # legitimately return an Overall, not None).
-    assume("VERDICT overall" not in last.upper())
+    assume(verdict._TRAILER_RE.match(last) is None)
     text = f"{prose}\n{last}"
     assert verdict.parse_trailer(text) is None

@@ -175,7 +175,9 @@ def parse_trailer(text: str) -> Overall | None:
     if m is None:
         return None
     token = m.group(1).upper()
-    try:
-        return Overall[token]
-    except KeyError:
+    # The trailer contract carries only routing verdicts (PASS/FAIL/BLOCKED).
+    # `Overall` also has internal members (UNPARSEABLE) that must NOT be reachable via
+    # the trailer channel — an unknown/internal token returns None.
+    if token not in {"PASS", "FAIL", "BLOCKED"}:
         return None
+    return Overall[token]
