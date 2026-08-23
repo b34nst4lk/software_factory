@@ -21,6 +21,7 @@ Thumbs.db
 
 # Python venv (orchestrator toolchain)
 .venv/
+.venv
 __pycache__/
 *.pyc
 .coverage
@@ -29,3 +30,8 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+
+# Orchestrator runtime artifacts (never tracked — the verifier writes these per cycle;
+# committing a stale .verdict.yaml would let a later run read a leftover PASS verdict)
+.verdict.yaml
+.verdict.yml
