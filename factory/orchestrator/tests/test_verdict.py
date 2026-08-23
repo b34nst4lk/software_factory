@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pytest
+from hypothesis import assume, given
+from hypothesis import strategies as st
 
 import verdict
 
@@ -188,3 +190,86 @@ def test_parse_verdict_yaml_strips_a_leading_fence():
 def test_parse_verdict_yaml_malformed_is_unparseable():
     v = verdict.parse_verdict_yaml("overall: : : not yaml")
     assert v.overall is verdict.Overall.UNPARSEABLE
+
+
+# ---- parse_trailer (decision 15: deterministic routing channel) ----
+# The trailer is a compact one-line routing marker `VERDICT overall=PASS|FAIL|BLOCKED`
+# that survives any pane width. parse_trailer reads ONLY the last non-empty line and
+# returns the matching Overall, or None when no usable trailer is present. It is a
+# pure text scan (no fenced-YAML extraction).
+
+
+def test_parse_trailer_returns_pass_for_pass_trailer():
+    # maps to: parse_trailer(text ending in 'VERDICT overall=PASS') returns Overall.PASS
+    assert verdict.parse_trailer("review done\nVERDICT overall=PASS") is verdict.Overall.PASS
+
+
+def test_parse_trailer_returns_fail_for_fail_trailer():
+    # maps to: parse_trailer(text ending in 'VERDICT overall=FAIL') returns Overall.FAIL
+    assert verdict.parse_trailer("review done\nVERDICT overall=FAIL") is verdict.Overall.FAIL
+
+
+def test_parse_trailer_returns_blocked_for_blocked_trailer():
+    # maps to: parse_trailer(text ending in 'VERDICT overall=BLOCKED') returns Overall.BLOCKED
+    assert verdict.parse_trailer("review done\nVERDICT overall=BLOCKED") is verdict.Overall.BLOCKED
+
+
+def test_parse_trailer_returns_none_when_no_trailer_present():
+    # maps to: parse_trailer(text with no 'VERDICT overall=' line) returns None
+    assert verdict.parse_trailer("just some prose, no trailer") is None
+    assert verdict.parse_trailer("") is None
+
+
+def test_parse_trailer_ignores_a_stray_mid_text_trailer():
+    # maps to: parse_trailer reads the LAST non-empty line only; a stray mid-text
+    # trailer does not count when a different line follows.
+    text = "VERDICT overall=PASS\nbut then more prose follows"
+    assert verdict.parse_trailer(text) is None
+
+
+def test_parse_trailer_tolerates_whitespace_and_case():
+    # maps to: parse_trailer tolerates trailing whitespace, surrounding spaces around
+    # '=', and is case-insensitive on the overall token.
+    assert verdict.parse_trailer("VERDICT overall = PASS   \n") is verdict.Overall.PASS
+    assert verdict.parse_trailer("VERDICT overall=pass") is verdict.Overall.PASS
+    assert verdict.parse_trailer("VERDICT overall = fail") is verdict.Overall.FAIL
+    assert verdict.parse_trailer("VERDICT overall=Blocked") is verdict.Overall.BLOCKED
+
+
+def test_parse_trailer_returns_none_for_unknown_overall_token():
+    # maps to: parse_trailer returns None for an unknown overall token.
+    assert verdict.parse_trailer("VERDICT overall=WAT") is None
+
+
+@given(
+    prose=st.text(alphabet=st.characters(blacklist_categories=["Cs"]), max_size=200),
+    token=st.sampled_from(["PASS", "FAIL", "BLOCKED"]),
+    pad=st.text(alphabet=" \t", max_size=10),
+    eq_spaces=st.text(alphabet=" ", max_size=3),
+    case=st.sampled_from(["upper", "lower", "mixed"]),
+)
+def test_parse_trailer_property_valid_trailer(prose, token, pad, eq_spaces, case):
+    # maps to: for every last non-empty line of the form `VERDICT overall=X` with X in
+    # {PASS,FAIL,BLOCKED} (arbitrary leading prose, optional surrounding whitespace /
+    # spaces around '='), parse_trailer returns the matching Overall.
+    if case == "upper":
+        tok = token
+    elif case == "lower":
+        tok = token.lower()
+    else:
+        tok = token[0] + token[1:].lower()
+    text = f"{prose}\nVERDICT overall{eq_spaces}={eq_spaces}{tok}{pad}"
+    assert verdict.parse_trailer(text) is verdict.Overall[token]
+
+
+@given(
+    prose=st.text(alphabet=st.characters(blacklist_categories=["Cs"]), max_size=200),
+    last=st.text(alphabet=st.characters(blacklist_categories=["Cs"]), max_size=200),
+)
+def test_parse_trailer_property_non_trailer_returns_none(prose, last):
+    # maps to: for any other last line it returns None.
+    # Constrain the last line so it cannot itself be a valid trailer (which would
+    # legitimately return an Overall, not None).
+    assume("VERDICT overall" not in last.upper())
+    text = f"{prose}\n{last}"
+    assert verdict.parse_trailer(text) is None

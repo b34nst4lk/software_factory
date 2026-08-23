@@ -150,3 +150,32 @@ def route(verdict_obj: Verdict) -> Action:
         Overall.BLOCKED: Action.ESCALATE,
         Overall.UNPARSEABLE: Action.HUMAN_GATE,
     }[verdict_obj.overall]
+
+
+# A compact one-line routing trailer: `VERDICT overall=PASS|FAIL|BLOCKED`. The overall
+# token may be surrounded by spaces around '=' and is case-insensitive. This is a pure
+# text scan (decision 15) — it deliberately does NOT reuse the fenced-YAML extraction
+# path. It reads only the LAST non-empty line, so a stray mid-text trailer does not count.
+_TRAILER_RE = re.compile(r"^VERDICT\s+overall\s*=\s*(\S+)\s*$", re.IGNORECASE)
+
+
+def parse_trailer(text: str) -> Overall | None:
+    """Return the routing Overall from the last non-empty `VERDICT overall=X` line.
+
+    Reads only the last non-empty line of ``text``. Returns the matching ``Overall``
+    (PASS/FAIL/BLOCKED) when that line is a valid trailer, else ``None``. The overall
+    token is case-insensitive and tolerates surrounding spaces around ``=`` and trailing
+    whitespace. Pure text scan — no fenced-YAML extraction.
+    """
+    last = ""
+    for line in text.splitlines():
+        if line.strip():
+            last = line
+    m = _TRAILER_RE.match(last)
+    if m is None:
+        return None
+    token = m.group(1).upper()
+    try:
+        return Overall[token]
+    except KeyError:
+        return None
