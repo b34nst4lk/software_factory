@@ -12,8 +12,6 @@ build/
 # Logs
 *.log
 logs/
-# run.log is tracked state (per-cycle append) — keep it despite *.log
-!run.log
 
 # OS
 .DS_Store

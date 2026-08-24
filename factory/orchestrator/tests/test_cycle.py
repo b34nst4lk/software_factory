@@ -118,8 +118,8 @@ def test_pass_first_cycle_done(tmp_path):
     # frontmatter updated value-only
     [t] = tickets.parse_impl_files([unit.path])
     assert t.cycle == 1 and t.last_verdict == "PASS"
-    # run.log appended one line
-    assert (Path(worktree) / "run.log").read_text().count("\n") == 1
+    # run.log narrative is gone (the SQLite DB is the narrative now) — no run.log written
+    assert not (Path(worktree) / "run.log").exists()
     # sidebar metadata pushed
     assert ("p1", "impl-01 c1 PASS") in m.metadata
 
@@ -296,10 +296,10 @@ def test_cycle_counter_persists_across_resume(tmp_path):
     )
     assert r2.outcome is cycle.CycleOutcome.DONE
     assert r2.final_cycle == 2  # the bug: this was 1 before the fix
-    log = (Path(worktree) / "run.log").read_text()
-    assert "c1 BLOCKED" in log
-    assert "c2 PASS" in log
-    assert log.count("c1 ") == 1  # no second c1
+    # the narrative is the SQLite DB: one row per cycle, no duplicate c1
+    rows = state.query_cycles(str(tmp_path / "state.db"), unit_id="impl-01")
+    assert [r["cycle_no"] for r in rows] == [1, 2]
+    assert [r["verdict"] for r in rows] == ["BLOCKED", "PASS"]
 
 
 def test_done_persists_status_done(tmp_path):

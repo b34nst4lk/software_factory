@@ -4,8 +4,9 @@ This is the build-time heart of the spine (05 Q3, Q4; ticket 09). One unit, one
 worktree, two already-started herdr panes (impl-NN, ver-NN). Each cycle: prompt the
 implementer (`--wait --until done`), read it, prompt the verifier (`--wait --until
 done|blocked`), read it, parse the fenced-YAML verdict, route it, then mutate the
-impl frontmatter **value-only** (cycle + last_verdict) and append a run.log line and
-commit — so every cycle is a guarded git commit.
+impl frontmatter **value-only** (cycle + last_verdict) and commit — so every cycle is a
+guarded git commit. The narrative (one row per cycle) is written to the per-repo SQLite
+DB by ``state.log_cycle`` (decision 17), not a tracked ``run.log``.
 
 Routing (06 Q1):
   DONE       -> return; run.py raises the PR.
@@ -186,7 +187,8 @@ def run_cycle(
         action = verdict.route(v)
         overall_str = v.overall.value
 
-        # 4. state: value-only frontmatter + append-only run.log + guarded commit.
+        # 4. state: value-only frontmatter + guarded commit (decision 17: the narrative
+        #    is the SQLite DB, not a tracked run.log).
         #    status persists the lifecycle (04): done/parked at the terminal cycle,
         #    in_progress on a retry cycle (a capped unit is still in_progress).
         if action is verdict.Action.DONE:
@@ -198,7 +200,6 @@ def run_cycle(
         tickets.write_frontmatter_value(
             unit.path, cycle=cycle_no, last_verdict=overall_str, status=status_str
         )
-        tickets.append_run_log(worktree, f"{unit.id} c{cycle_no} {overall_str}")
         commit_sha = commit(unit.id, cycle_no, overall_str, worktree)
         herdr.report_metadata(panes.impl_pane, f"{unit.id} c{cycle_no} {overall_str}")
 
