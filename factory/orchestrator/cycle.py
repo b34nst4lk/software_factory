@@ -39,7 +39,8 @@ import tickets
 import verdict
 from herdr import HerdrPort
 
-CommitFn = Callable[[str, int, str, str], str]
+# (unit_id, cycle_no, overall, worktree, impl_ticket, scope_files, branch) -> commit sha
+CommitFn = Callable[[str, int, str, str, str, list[str], str], str]
 
 
 class CycleOutcome(enum.Enum):
@@ -200,7 +201,9 @@ def run_cycle(
         tickets.write_frontmatter_value(
             unit.path, cycle=cycle_no, last_verdict=overall_str, status=status_str
         )
-        commit_sha = commit(unit.id, cycle_no, overall_str, worktree)
+        commit_sha = commit(
+            unit.id, cycle_no, overall_str, worktree, unit.path, unit.scope_files, branch
+        )
         herdr.report_metadata(panes.impl_pane, f"{unit.id} c{cycle_no} {overall_str}")
 
         # 5. narrative: one row per cycle, AFTER the verdict is routed (so the action

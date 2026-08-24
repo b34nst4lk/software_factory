@@ -86,7 +86,7 @@ def run(unit, m, tmp_path, *, cap=5, resolution=None):
     issues.mkdir()
     commits: list[tuple] = []
 
-    def commit(unit_id, c, overall, wt):
+    def commit(unit_id, c, overall, wt, *_args):
         commits.append((unit_id, c, overall, wt))
         return f"{unit_id}-c{c}"
 
@@ -226,7 +226,7 @@ def test_verdict_file_takes_precedence_over_pane_text(tmp_path):
     )
     cfg = FakeConfig(cycle_cap=5)
 
-    def commit(uid, c, o, wt):
+    def commit(uid, c, o, wt, *_args):
         return f"{uid}-c{c}"
 
     result = cycle.run_cycle(
@@ -256,7 +256,7 @@ def test_cycle_counter_persists_across_resume(tmp_path):
     cfg = FakeConfig(cycle_cap=5)
     commits: list[tuple] = []
 
-    def commit(uid, c, o, wt):
+    def commit(uid, c, o, wt, *_args):
         commits.append((uid, c, o))
         return f"{uid}-c{c}"
 

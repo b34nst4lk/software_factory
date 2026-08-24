@@ -58,10 +58,7 @@ class GitOps:
     def commit_cycle(
         self, worktree: str, message: str, *, impl_ticket: str, scope_files: list[str]
     ) -> str:
-        # Stage EXACTLY the governed set by explicit path (decision 17): the impl
-        # ticket plus its scope_files. Never `git add -A`/`.` — that swept runtime
-        # artifacts (.verdict.yaml, a .venv symlink) into per-cycle commits. run.log is
-        # no longer tracked (the SQLite DB is the narrative), so there is no force-add.
+        """Stage the impl ticket and its scope_files, commit, and return the HEAD sha."""
         paths = [impl_ticket, *scope_files]
         self._run(["git", "-C", worktree, "add", "--", *paths])
         self._run(["git", "-C", worktree, "commit", "-m", message])
@@ -69,7 +66,7 @@ class GitOps:
         return out.strip()
 
     def branch_sha(self, worktree: str, branch: str) -> str:
-        """The sha the ``impl/NN`` branch ref points at (ref-advance assert, decision 17)."""
+        """The sha a branch ref points at."""
         out, _ = self._run(["git", "-C", worktree, "rev-parse", branch])
         return out.strip()
 

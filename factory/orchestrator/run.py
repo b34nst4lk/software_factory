@@ -184,25 +184,27 @@ class Orchestrator:
         rel = os.path.relpath(st.unit.path, self.config.repo_path)
         return os.path.join(st.worktree, rel)
 
-    def _commit_fn(self, st: UnitState) -> cycle.CommitFn:
-        def commit(unit_id: str, c: int, overall: str, worktree: str) -> str:
-            sha = self.gitops.commit_cycle(
-                worktree,
-                f"{unit_id} c{c} {overall}",
-                impl_ticket=st.unit.path,
-                scope_files=st.unit.scope_files,
-            )
-            # ref-advance assert (decision 17): the impl/NN ref must point at the
-            # just-made commit. A regression to dangling commits (a commit not on the
-            # branch) fails loudly here instead of silently losing the cycle.
-            ref = self.gitops.branch_sha(worktree, st.branch)
-            assert ref == sha, (
-                f"ref-advance failed: {st.branch} points at {ref}, expected {sha} "
-                f"(dangling-commit regression)"
-            )
-            return sha
-
-        return commit
+    def _commit(
+        self,
+        unit_id: str,
+        c: int,
+        overall: str,
+        worktree: str,
+        impl_ticket: str,
+        scope_files: list[str],
+        branch: str,
+    ) -> str:
+        sha = self.gitops.commit_cycle(
+            worktree,
+            f"{unit_id} c{c} {overall}",
+            impl_ticket=impl_ticket,
+            scope_files=scope_files,
+        )
+        # The branch ref must point at the new commit (guard against dangling commits).
+        assert (
+            self.gitops.branch_sha(worktree, branch) == sha
+        ), f"ref-advance failed: {branch} not at {sha}"
+        return sha
 
     def _run_one(self, st: UnitState, done: set[str], *, resolution: str | None) -> None:
         result = cycle.run_cycle(
@@ -212,7 +214,7 @@ class Orchestrator:
             worktree=st.worktree,
             branch=st.branch,
             panes=st.panes,
-            commit=self._commit_fn(st),
+            commit=self._commit,
             issues_dir=self.config.issues_dir,
             next_esc_number=self.next_esc_number,
             resolution=resolution,
