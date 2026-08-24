@@ -1,8 +1,10 @@
 """End-to-end guard CLI test against a real (throwaway) git repo.
 
 This is the unit test behind the Husky acceptance: a commit that adds a frontmatter
-key OR deletes a run.log line must be REJECTED, value-only changes accepted. The
-Husky pre-commit hook shells out to this same ``guard.main``.
+key must be REJECTED, value-only changes accepted. A staged ``run.log`` is also
+rejected because it is a non-governed path (not in ``{impl-ticket} ∪ scope_files``),
+not because of any append-only rule. The Husky pre-commit hook shells out to this
+same ``guard.main``.
 """
 
 from __future__ import annotations
@@ -75,22 +77,11 @@ def test_body_edit_is_rejected(tmp_path, monkeypatch):
     assert guard.main([]) == 1
 
 
-def test_run_log_deletion_is_rejected(tmp_path, monkeypatch):
-    d = init_repo(tmp_path)
-    monkeypatch.chdir(d)
-    with open("run.log", "w") as fh:
-        fh.write("boot\n")  # unchanged line
-    # rewrite run.log removing the "boot" line (a deletion in the diff)
-    with open("run.log", "w") as fh:
-        fh.write("only-new\n")
-    git("add", "-f", "run.log", cwd=d)
-    assert guard.main([]) == 1
-
-
-def test_run_log_append_is_accepted(tmp_path, monkeypatch):
+def test_run_log_is_rejected_as_non_governed(tmp_path, monkeypatch):
+    # maps to: a staged run.log is rejected as a non-governed path (no longer special-cased)
     d = init_repo(tmp_path)
     monkeypatch.chdir(d)
     with open("run.log", "a") as fh:
         fh.write("appended line\n")
     git("add", "-f", "run.log", cwd=d)
-    assert guard.main([]) == 0
+    assert guard.main([]) == 1

@@ -1,15 +1,18 @@
 """Guard util — the spine's git-as-state integrity backstop.
 
-Two rules (ticket 05 Q2 / ticket 09 Invariants):
+Two rules (ticket 05 Q2 / ticket 09 Invariants / decision 17):
   1. impl-ticket frontmatter changes are **value-only**: the frontmatter key set is
      unchanged and the prose body is unchanged. Only values of `status` / `cycle` /
      `last_verdict` may move. A new key, a removed key, or a body edit is a violation.
-  2. ``run.log`` is **append-only**: a staged diff for ``run.log`` may not contain any
-     removed line (no ``-`` lines that are not the ``---`` hunk-header).
+  2. staged paths must be a **subset of `{impl-ticket} ∪ scope_files`**: the impl
+     ticket's frontmatter `scope_files` (read via `split_frontmatter`) plus the
+     ticket itself are the only governed paths. A hard denylist (`.verdict.yaml`,
+     `.verdict.yml`, `.venv`, `*.db`, `__pycache__`) rejects runtime-artifact cruft
+     regardless of `scope_files`. `run.log` is no longer special-cased.
 
 The pure checks below are the test seam. :func:`main` is the pre-commit entrypoint:
 it reads staged file content via ``git`` and applies the two rules to staged impl
-tickets (``.../impl/*.md``) and ``run.log`` files.
+files (``.../impl/*.md``) and the staged path set.
 """
 
 from __future__ import annotations
@@ -17,16 +20,20 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 import yaml
 
-# `.md` under an `impl/` directory are impl tickets; any path ending in run.log is a
-# run log. Both patterns are path-suffix matches so they work inside worktrees.
+# `.md` under an `impl/` directory are impl tickets. Path-suffix match so it works
+# inside worktrees.
 _IMPL_RE = re.compile(r"(^|/)impl/[^/]+\.md$")
-_RUNLOG_RE = re.compile(r"(^|/)run\.log$")
 _FM_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n(.*)\Z", re.DOTALL)
+
+# Runtime-artifact cruft that must never be committed, regardless of scope_files.
+# Suffix matches (path ends with) and path-component matches (a path segment equals).
+_DENY_SUFFIXES = (".verdict.yaml", ".verdict.yml", ".db")
+_DENY_COMPONENTS = (".venv", "__pycache__")
 
 
 @dataclass(frozen=True)
@@ -70,12 +77,11 @@ def body_changed(before: str, after: str) -> bool:
     return body_before != body_after
 
 
-def run_log_has_deletions(diff_text: str) -> bool:
-    """True if any unified-diff line is a removal (starts with ``-`` but not ``---``)."""
-    for line in diff_text.splitlines():
-        if line.startswith("-") and not line.startswith("---"):
-            return True
-    return False
+def _denied(path: str) -> bool:
+    """True if a staged path matches the runtime-artifact denylist."""
+    if path.endswith(_DENY_SUFFIXES):
+        return True
+    return any(part in _DENY_COMPONENTS for part in path.split("/"))
 
 
 def check_impl_file(before: str, after: str, path: str, *, is_new: bool) -> list[Violation]:
@@ -94,10 +100,33 @@ def check_impl_file(before: str, after: str, path: str, *, is_new: bool) -> list
     return out
 
 
-def check_run_log_diff(diff_text: str, path: str) -> list[Violation]:
-    if run_log_has_deletions(diff_text):
-        return [Violation(path, "append-only", "run.log has a removed/modified line")]
-    return []
+def check_staged_paths(
+    staged_paths: Iterable[str], staged_contents: Mapping[str, str]
+) -> list[Violation]:
+    """Enforce staged paths ⊆ {impl-ticket} ∪ scope_files, with a hard denylist.
+
+    ``staged_contents`` maps each staged path to its staged file content (used to
+    read the impl ticket's ``scope_files`` frontmatter). Pure over its inputs.
+    """
+    paths = list(staged_paths)
+    violations: list[Violation] = []
+
+    impl_ticket = next((p for p in paths if _IMPL_RE.search(p)), None)
+    governed: set[str] = set()
+    if impl_ticket is not None:
+        governed.add(impl_ticket)
+        fm, _ = split_frontmatter(staged_contents.get(impl_ticket, ""))
+        if fm is not None:
+            scope = fm.get("scope_files")
+            if isinstance(scope, list):
+                governed.update(str(s) for s in scope)
+
+    for path in paths:
+        if _denied(path):
+            violations.append(Violation(path, "denylist", "path matches runtime-artifact denylist"))
+        elif path not in governed:
+            violations.append(Violation(path, "scope", "path not in {impl-ticket} ∪ scope_files"))
+    return violations
 
 
 # ---- git integration for the pre-commit hook ----
@@ -121,23 +150,20 @@ def _index_text(path: str) -> str:
     return _git(["show", f":{path}"])
 
 
-def _staged_diff(path: str) -> str:
-    return _git(["diff", "--cached", "--", path])
-
-
 def check_staged(paths: Iterable[str]) -> list[Violation]:
     """Run both guard rules over an explicit list of staged paths (test seam)."""
+    path_list = list(paths)
     violations: list[Violation] = []
-    for path in paths:
+    staged_contents: dict[str, str] = {}
+    for path in path_list:
         if _IMPL_RE.search(path):
             before = _head_text(path)
             after = _index_text(path)
+            staged_contents[path] = after
             # A new impl ticket (not in HEAD) is a to-tickets creation — allow it;
             # only modifications of an existing ticket are value-only-constrained.
             violations.extend(check_impl_file(before, after, path, is_new=before == ""))
-        elif _RUNLOG_RE.search(path):
-            diff = _staged_diff(path)
-            violations.extend(check_run_log_diff(diff, path))
+    violations.extend(check_staged_paths(path_list, staged_contents))
     return violations
 
 

@@ -1,32 +1,50 @@
 ---
 id: impl-03
-decision: "17 — git-as-state durability"
-title: "guard: reject commits outside {impl-ticket} ∪ scope_files + denylist; drop run.log rule"
+decision: 17 — git-as-state durability
+title: 'guard: reject commits outside {impl-ticket} ∪ scope_files + denylist; drop
+  run.log rule'
 scope_files:
-  - factory/orchestrator/guard.py
-  - factory/orchestrator/tests/test_guard.py
+- factory/orchestrator/guard.py
+- factory/orchestrator/tests/test_guard.py
 acceptance:
-  - story: "As the deterministic pre-commit guard, I reject any per-cycle commit that contains non-governed or runtime-artifact paths"
-    behaviors:
-      - { behavior: "the guard rejects a commit whose staged paths are not a subset of {impl-ticket} ∪ scope_files", outcome: failure }
-      - { behavior: "the guard reads scope_files from the staged impl-ticket's YAML frontmatter (the .scratch/.../impl/NN-*.md file among the staged paths)", outcome: success }
-      - { behavior: "the guard hard-denies a staged path matching the denylist (.verdict.yaml, .verdict.yml, .venv, *.db, __pycache__) regardless of scope_files", outcome: failure }
-      - { behavior: "the guard accepts a commit whose staged paths are exactly {impl-ticket} ∪ scope_files", outcome: success }
-  - story: "As the guard, the old run.log append-only rule is gone (run.log is no longer committed)"
-    behaviors:
-      - { behavior: "the guard no longer enforces a run.log append-only rule (the rule/check is removed)", outcome: success }
-      - { behavior: "a staged run.log is rejected as a non-governed path (it is not in {impl-ticket} ∪ scope_files and not special-cased)", outcome: failure }
+- story: As the deterministic pre-commit guard, I reject any per-cycle commit that
+    contains non-governed or runtime-artifact paths
+  behaviors:
+  - behavior: the guard rejects a commit whose staged paths are not a subset of {impl-ticket}
+      ∪ scope_files
+    outcome: failure
+  - behavior: the guard reads scope_files from the staged impl-ticket's YAML frontmatter
+      (the .scratch/.../impl/NN-*.md file among the staged paths)
+    outcome: success
+  - behavior: the guard hard-denies a staged path matching the denylist (.verdict.yaml,
+      .verdict.yml, .venv, *.db, __pycache__) regardless of scope_files
+    outcome: failure
+  - behavior: the guard accepts a commit whose staged paths are exactly {impl-ticket}
+      ∪ scope_files
+    outcome: success
+- story: As the guard, the old run.log append-only rule is gone (run.log is no longer
+    committed)
+  behaviors:
+  - behavior: the guard no longer enforces a run.log append-only rule (the rule/check
+      is removed)
+    outcome: success
+  - behavior: a staged run.log is rejected as a non-governed path (it is not in {impl-ticket}
+      ∪ scope_files and not special-cased)
+    outcome: failure
 verify:
-  - "behaviors captured by tests; tests map 1:1 to acceptance.behaviors"
-  - "the governed set is {impl-ticket path} ∪ scope_files, where scope_files come from the staged impl ticket's frontmatter"
-  - "the denylist is a hard floor: a denied path is rejected even if it were somehow in scope_files"
-  - "the guard is a pure function over (staged paths, staged file contents) — it does not shell out beyond reading staged content"
+- behaviors captured by tests; tests map 1:1 to acceptance.behaviors
+- the governed set is {impl-ticket path} ∪ scope_files, where scope_files come from
+  the staged impl ticket's frontmatter
+- 'the denylist is a hard floor: a denied path is rejected even if it were somehow
+  in scope_files'
+- the guard is a pure function over (staged paths, staged file contents) — it does
+  not shell out beyond reading staged content
 model: deepseek-v4-flash:cloud
 depends_on:
-  - impl-02
-status: open
-cycle: 0
-last_verdict: ""
+- impl-02
+status: done
+cycle: 1
+last_verdict: PASS
 ---
 Make the deterministic pre-commit **guard** the real gate against runtime-artifact cruft
 in per-cycle commits (formalize-when-discovered: a programmatically-checkable rule belongs
