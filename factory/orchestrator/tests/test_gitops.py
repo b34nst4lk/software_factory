@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import gitops
 
 # ---- real wrapper argv construction ----
@@ -21,22 +23,128 @@ def test_worktree_add_builds_argv(tmp_path):
     assert "-b" in calls[0] and "impl-01" in calls[0]
 
 
-def test_commit_cycle_adds_all_and_force_adds_runlog_and_commits(tmp_path):
+def test_commit_cycle_stages_explicit_governed_paths_and_returns_sha(tmp_path):
+    # maps to: commit_cycle stages exactly {impl-ticket} ∪ scope_files, each by explicit
+    # `git add -- <path>`; it never uses `git add -A`/`git add .`/`git add -f run.log`.
     calls: list[list[str]] = []
 
     def runner(argv: list[str]) -> tuple[str, int]:
         calls.append(argv)
+        if argv[-2:] == ["rev-parse", "HEAD"]:
+            return ("abc123", 0)
         return ("", 0)
 
     g = gitops.GitOps(runner=runner, repo="/repo")
-    g.commit_cycle("/wt", "impl-01 c1 PASS")
-    # expect: git -C /wt add -A ; git -C /wt add -f run.log ; git -C /wt commit -m ...
+    sha = g.commit_cycle(
+        "/wt",
+        "impl-01 c1 PASS",
+        impl_ticket=".scratch/sf/impl/01-greet.md",
+        scope_files=["factory/greet.py", "factory/greet_test.py"],
+    )
+    assert sha == "abc123"  # returns the commit sha
+    # exactly ONE explicit `git add -- <paths>`; never -A / . / -f run.log
+    add_calls = [c for c in calls if "add" in c]
+    assert len(add_calls) == 1
+    add = add_calls[0]
+    assert add[:3] == ["git", "-C", "/wt"]
+    assert "--" in add
+    assert ".scratch/sf/impl/01-greet.md" in add
+    assert "factory/greet.py" in add
+    assert "factory/greet_test.py" in add
+    assert "-A" not in add
+    assert "." not in add  # no bare `git add .`
+    assert "-f" not in add and "run.log" not in add
+    # then commit, then rev-parse HEAD for the sha
+    assert calls[-2][:3] == ["git", "-C", "/wt"] and "commit" in calls[-2]
+    assert "impl-01 c1 PASS" in calls[-2]
+    assert calls[-1][-2:] == ["rev-parse", "HEAD"]
+
+
+def test_commit_cycle_does_not_stage_runtime_artifacts(tmp_path):
+    # maps to: a runtime artifact (e.g. .verdict.yaml, a .venv symlink) present in the
+    # worktree is NOT staged by commit_cycle (it is not in the governed set).
+    calls: list[list[str]] = []
+
+    def runner(argv: list[str]) -> tuple[str, int]:
+        calls.append(argv)
+        if argv[-2:] == ["rev-parse", "HEAD"]:
+            return ("sha1", 0)
+        return ("", 0)
+
+    g = gitops.GitOps(runner=runner, repo="/repo")
+    g.commit_cycle("/wt", "m", impl_ticket="t.md", scope_files=["a.py"])
+    add = [c for c in calls if "add" in c][0]
+    assert ".verdict.yaml" not in add
+    assert ".venv" not in add
+    assert "run.log" not in add
+
+
+def test_commit_cycle_unstages_pre_staged_artifact_before_governed_add(tmp_path):
+    # maps to: a pre-staged runtime artifact (.verdict.yaml, .venv, run.log) is NOT in
+    # the commit — commit_cycle runs a mixed `git reset` (clears the index, keeps the
+    # worktree) BEFORE the governed `git add -- <paths>`, so the commit contains exactly
+    # the governed set.
+    calls: list[list[str]] = []
+
+    def runner(argv: list[str]) -> tuple[str, int]:
+        calls.append(argv)
+        if argv[-2:] == ["rev-parse", "HEAD"]:
+            return ("sha1", 0)
+        return ("", 0)
+
+    g = gitops.GitOps(runner=runner, repo="/repo")
+    g.commit_cycle("/wt", "m", impl_ticket="t.md", scope_files=["a.py"])
+    # a mixed `git reset` runs FIRST, clearing any pre-staged paths from the index
     assert calls[0][:3] == ["git", "-C", "/wt"]
-    assert "add" in calls[0] and "-A" in calls[0]
-    assert calls[1][:3] == ["git", "-C", "/wt"]
-    assert "-f" in calls[1] and "run.log" in calls[1]
-    assert calls[2][:3] == ["git", "-C", "/wt"]
-    assert "commit" in calls[2] and "-m" in calls[2] and "impl-01 c1 PASS" in calls[2]
+    assert calls[0][3] == "reset"
+    # then the governed add — the artifact is never staged
+    add = [c for c in calls if "add" in c][0]
+    assert ".verdict.yaml" not in add
+    assert ".venv" not in add
+    assert "run.log" not in add
+
+
+def test_commit_cycle_raises_when_commit_fails(tmp_path):
+    # maps to: a failed `git commit` (Husky rejection, empty index) raises instead of
+    # returning a stale sha that would let the ref-advance assert pass falsely.
+    calls: list[list[str]] = []
+
+    def runner(argv: list[str]) -> tuple[str, int]:
+        calls.append(argv)
+        if "commit" in argv:
+            return ("", 1)  # commit rejected
+        return ("", 0)
+
+    g = gitops.GitOps(runner=runner, repo="/repo")
+    with pytest.raises(gitops.GitError):
+        g.commit_cycle("/wt", "m", impl_ticket="t.md", scope_files=["a.py"])
+
+
+def test_commit_cycle_raises_when_rev_parse_fails(tmp_path):
+    # maps to: a failed `git rev-parse HEAD` raises rather than returning a stale sha.
+    def runner(argv: list[str]) -> tuple[str, int]:
+        if argv[-2:] == ["rev-parse", "HEAD"]:
+            return ("", 1)
+        return ("", 0)
+
+    g = gitops.GitOps(runner=runner, repo="/repo")
+    with pytest.raises(gitops.GitError):
+        g.commit_cycle("/wt", "m", impl_ticket="t.md", scope_files=["a.py"])
+
+
+def test_branch_sha_builds_argv():
+    # maps to: the ref-advance assert compares the branch ref to HEAD via a real
+    # `git rev-parse <branch>` in the real GitOps.
+    seen: list[list[str]] = []
+
+    def runner(argv: list[str]) -> tuple[str, int]:
+        seen.append(argv)
+        return ("deadbeef", 0)
+
+    g = gitops.GitOps(runner=runner, repo="/repo")
+    assert g.branch_sha("/wt", "impl-01") == "deadbeef"
+    assert seen[0][:3] == ["git", "-C", "/wt"]
+    assert seen[0][-2:] == ["rev-parse", "impl-01"]
 
 
 def test_push_branch_builds_argv():
@@ -86,11 +194,16 @@ def test_mock_worktree_add_creates_dirs_and_returns_path(tmp_path):
     assert os.path.isdir(wt)
 
 
-def test_mock_commit_cycle_records(tmp_path):
+def test_mock_commit_cycle_records_sha_and_governed_paths(tmp_path):
+    # maps to: MockGitOps stays in step with the real GitOps — records the governed
+    # paths and the returned sha, and its branch_sha equals the head after a commit.
     m = gitops.MockGitOps(base=str(tmp_path))
     wt = m.worktree_add("impl-01", parent=str(tmp_path))
-    m.commit_cycle(wt, "impl-01 c1 PASS")
-    assert m.commits == [(wt, "impl-01 c1 PASS")]
+    sha = m.commit_cycle(wt, "impl-01 c1 PASS", impl_ticket="t.md", scope_files=["a.py", "b.py"])
+    assert sha  # non-empty sha
+    assert m.commits == [(wt, "impl-01 c1 PASS", "t.md", ["a.py", "b.py"], sha)]
+    # stubbed ref-advance: after a commit the branch ref points at the head sha
+    assert m.branch_sha(wt, "impl-01") == sha
 
 
 def test_mock_push_remove_tag_record(tmp_path):

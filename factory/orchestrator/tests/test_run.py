@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+import pytest
+
 import config as config_mod
 import gitops
 import herdr
@@ -300,3 +302,51 @@ def test_mock_run_threads_db_path_and_logs_rows(tmp_path):
     assert rows[0]["verdict"] == "PASS"
     assert rows[0]["action"] == "DONE"
     assert rows[0]["commit_sha"]  # non-empty sha threaded from the commit closure
+
+
+def test_ref_advance_assert_passes_when_ref_advances(tmp_path):
+    # maps to: after each cycle the impl/NN ref points at the just-made commit; the
+    # ref-advance assert passes when the branch ref equals the returned sha.
+    units, cfg, m, gh, gops = setup(tmp_path)
+    m.feed_read("impl-01", "c1")
+    m.feed_read("ver-01", PASS_VERDICT)
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=lambda: "c",
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
+    )
+    assert orch.run() == {"impl-01": "done"}
+    # the commit closure staged the governed set (impl ticket + scope_files)
+    assert gops.commits[0][2]  # impl_ticket
+    assert gops.commits[0][3] == ["factory/greet.py"]  # scope_files
+
+
+def test_ref_advance_assert_fails_loudly_on_stale_ref(tmp_path):
+    # maps to: a regression to dangling commits (branch ref did NOT advance to the
+    # just-made commit) fails the ref-advance assert loudly.
+    units, cfg, m, gh, gops = setup(tmp_path)
+
+    class StaleGitOps(gitops.MockGitOps):
+        def branch_sha(self, worktree, branch):
+            return "stale-sha"  # ref did not advance
+
+    gops = StaleGitOps(base=str(tmp_path))
+    m.feed_read("impl-01", "c1")
+    m.feed_read("ver-01", PASS_VERDICT)
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=lambda: "c",
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
+    )
+    with pytest.raises(AssertionError, match="ref-advance failed"):
+        orch.run()

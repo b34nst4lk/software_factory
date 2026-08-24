@@ -1,41 +1,62 @@
 ---
 id: impl-02
-decision: "17 — git-as-state durability"
-title: "governed per-cycle commit (explicit staging) + discard run.log + ref-advance assert"
+decision: 17 — git-as-state durability
+title: governed per-cycle commit (explicit staging) + discard run.log + ref-advance
+  assert
 scope_files:
-  - factory/orchestrator/gitops.py
-  - factory/orchestrator/tests/test_gitops.py
-  - factory/orchestrator/cycle.py
-  - factory/orchestrator/tests/test_cycle.py
-  - factory/orchestrator/run.py
-  - factory/orchestrator/tests/test_run.py
-  - factory/orchestrator/tickets.py
-  - factory/orchestrator/tests/test_tickets.py
-  - .gitignore
+- factory/orchestrator/gitops.py
+- factory/orchestrator/tests/test_gitops.py
+- factory/orchestrator/cycle.py
+- factory/orchestrator/tests/test_cycle.py
+- factory/orchestrator/run.py
+- factory/orchestrator/tests/test_run.py
+- factory/orchestrator/tickets.py
+- factory/orchestrator/tests/test_tickets.py
+- .gitignore
 acceptance:
-  - story: "As the orchestrator, a per-cycle commit contains exactly the governed set and the impl/NN ref advances"
-    behaviors:
-      - { behavior: "commit_cycle stages exactly {impl-ticket} ∪ scope_files, each by explicit `git add -- <path>`; it never uses `git add -A` or `git add .`", outcome: success }
-      - { behavior: "commit_cycle does NOT stage run.log (no `git add -f run.log`)", outcome: success }
-      - { behavior: "a runtime artifact (e.g. .verdict.yaml, a .venv symlink) present in the worktree is NOT staged by commit_cycle", outcome: failure }
-      - { behavior: "commit_cycle returns the commit sha (so it can be logged and asserted)", outcome: success }
-      - { behavior: "after each cycle, impl/NN points at the just-made commit (ref-advance assert; fails loudly if the ref did not advance)", outcome: success }
-  - story: "As the orchestrator, the tracked run.log narrative is discarded (the SQLite DB is the narrative now)"
-    behaviors:
-      - { behavior: "tickets.append_run_log is deleted; the function no longer exists", outcome: failure }
-      - { behavior: "run_cycle and run._resume no longer call append_run_log (the calls are removed)", outcome: success }
-      - { behavior: ".gitignore drops the `!run.log` re-include (run.log is no longer tracked); run.log is untracked on this branch (git rm --cached run.log)", outcome: success }
+- story: As the orchestrator, a per-cycle commit contains exactly the governed set
+    and the impl/NN ref advances
+  behaviors:
+  - behavior: commit_cycle stages exactly {impl-ticket} ∪ scope_files, each by explicit
+      `git add -- <path>`; it never uses `git add -A` or `git add .`
+    outcome: success
+  - behavior: commit_cycle does NOT stage run.log (no `git add -f run.log`)
+    outcome: success
+  - behavior: a runtime artifact (e.g. .verdict.yaml, a .venv symlink) present in
+      the worktree is NOT staged by commit_cycle
+    outcome: failure
+  - behavior: commit_cycle returns the commit sha (so it can be logged and asserted)
+    outcome: success
+  - behavior: after each cycle, impl/NN points at the just-made commit (ref-advance
+      assert; fails loudly if the ref did not advance)
+    outcome: success
+- story: As the orchestrator, the tracked run.log narrative is discarded (the SQLite
+    DB is the narrative now)
+  behaviors:
+  - behavior: tickets.append_run_log is deleted; the function no longer exists
+    outcome: failure
+  - behavior: run_cycle and run._resume no longer call append_run_log (the calls are
+      removed)
+    outcome: success
+  - behavior: .gitignore drops the `!run.log` re-include (run.log is no longer tracked);
+      run.log is untracked on this branch (git rm --cached run.log)
+    outcome: success
 verify:
-  - "behaviors captured by tests; tests map 1:1 to acceptance.behaviors"
-  - "commit_cycle's staging is explicit per-file: assert the git argv contains `git add -- <governed paths>` and never `git add -A`/`git add .`/`git add -f run.log`"
-  - "ref-advance assert: after commit_cycle, `git -C <worktree> rev-parse <branch>` == `git -C <worktree> rev-parse HEAD`; a regression to dangling commits fails the assert"
-  - "impl-01's log_cycle is still called once per cycle (impl-01 added it); this unit keeps that call and feeds it the returned sha"
-  - "the existing cycle/run/gitops/tickets tests are updated for the removed append_run_log + the new commit_cycle signature and stay green"
+- behaviors captured by tests; tests map 1:1 to acceptance.behaviors
+- 'commit_cycle''s staging is explicit per-file: assert the git argv contains `git
+  add -- <governed paths>` and never `git add -A`/`git add .`/`git add -f run.log`'
+- 'ref-advance assert: after commit_cycle, `git -C <worktree> rev-parse <branch>`
+  == `git -C <worktree> rev-parse HEAD`; a regression to dangling commits fails the
+  assert'
+- impl-01's log_cycle is still called once per cycle (impl-01 added it); this unit
+  keeps that call and feeds it the returned sha
+- the existing cycle/run/gitops/tickets tests are updated for the removed append_run_log
+  + the new commit_cycle signature and stay green
 model: deepseek-v4-flash:cloud
 depends_on: []
-status: open
-cycle: 0
-last_verdict: ""
+status: done
+cycle: 1
+last_verdict: PASS
 ---
 Make the per-cycle **commit** durable and governed, and discard the tracked `run.log`
 narrative (the SQLite DB from impl-01 is the narrative now). Touch only the files in

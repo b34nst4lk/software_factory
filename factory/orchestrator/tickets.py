@@ -163,10 +163,3 @@ def write_frontmatter_value(path: str, **values: object) -> None:
         fm[k] = v
     head = yaml.safe_dump(fm, sort_keys=False, default_flow_style=False, allow_unicode=True)
     Path(path).write_text(f"---\n{head}---\n{body}")
-
-
-def append_run_log(worktree: str, line: str) -> None:
-    """Append one narrative line to the worktree's tracked ``run.log`` (append-only)."""
-    log = Path(worktree) / "run.log"
-    with log.open("a") as fh:
-        fh.write(line if line.endswith("\n") else line + "\n")

@@ -17,7 +17,6 @@ import contextlib
 import dataclasses
 import enum
 import os
-import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -185,32 +184,27 @@ class Orchestrator:
         rel = os.path.relpath(st.unit.path, self.config.repo_path)
         return os.path.join(st.worktree, rel)
 
-    def _commit_fn(self, st: UnitState) -> cycle.CommitFn:
-        def commit(unit_id: str, c: int, overall: str, worktree: str) -> str:
-            self.gitops.commit_cycle(worktree, f"{unit_id} c{c} {overall}")
-            return self._head_sha(worktree)
-
-        return commit
-
-    def _head_sha(self, worktree: str) -> str:
-        """The worktree HEAD sha after the per-cycle commit (decision 17 narrative).
-
-        Best-effort: in a real git worktree this is ``git rev-parse HEAD``; in ``--mock``
-        (no repo) it falls back to a sentinel so the narrative row still carries a sha.
-        """
-        try:
-            res = subprocess.run(
-                ["git", "-C", worktree, "rev-parse", "HEAD"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            sha = res.stdout.strip()
-            if sha:
-                return sha
-        except Exception:
-            pass
-        return "unknown"
+    def _commit(
+        self,
+        unit_id: str,
+        c: int,
+        overall: str,
+        worktree: str,
+        impl_ticket: str,
+        scope_files: list[str],
+        branch: str,
+    ) -> str:
+        sha = self.gitops.commit_cycle(
+            worktree,
+            f"{unit_id} c{c} {overall}",
+            impl_ticket=impl_ticket,
+            scope_files=scope_files,
+        )
+        # The branch ref must point at the new commit (guard against dangling commits).
+        assert (
+            self.gitops.branch_sha(worktree, branch) == sha
+        ), f"ref-advance failed: {branch} not at {sha}"
+        return sha
 
     def _run_one(self, st: UnitState, done: set[str], *, resolution: str | None) -> None:
         result = cycle.run_cycle(
@@ -220,7 +214,7 @@ class Orchestrator:
             worktree=st.worktree,
             branch=st.branch,
             panes=st.panes,
-            commit=self._commit_fn(st),
+            commit=self._commit,
             issues_dir=self.config.issues_dir,
             next_esc_number=self.next_esc_number,
             resolution=resolution,
@@ -252,7 +246,6 @@ class Orchestrator:
             self._log.append(f"{st.id} cancelled by resolution")
             return True
         resolution = "".join(escalate.resolution_block(p, a) for p, a in res)
-        tickets.append_run_log(st.worktree, f"{st.id} resolution received")
         self._run_one(st, done, resolution=resolution)
         return True
 
@@ -317,7 +310,12 @@ class Orchestrator:
             else:
                 self.gh.pr_comment(st.pr_number or 0, f"Dismissed ({r.comment_id}): {r.reason}")
         if any_addressed:
-            self.gitops.commit_cycle(st.worktree, f"{st.id} pr-fix")
+            self.gitops.commit_cycle(
+                st.worktree,
+                f"{st.id} pr-fix",
+                impl_ticket=st.unit.path,
+                scope_files=st.unit.scope_files,
+            )
             self.herdr.agent_prompt(
                 st.panes.ver_name,
                 prompts.verifier_prompt(
