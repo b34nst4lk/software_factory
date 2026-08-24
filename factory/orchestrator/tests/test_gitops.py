@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import gitops
 
 # ---- real wrapper argv construction ----
@@ -75,6 +77,59 @@ def test_commit_cycle_does_not_stage_runtime_artifacts(tmp_path):
     assert ".verdict.yaml" not in add
     assert ".venv" not in add
     assert "run.log" not in add
+
+
+def test_commit_cycle_unstages_pre_staged_artifact_before_governed_add(tmp_path):
+    # maps to: a pre-staged runtime artifact (.verdict.yaml, .venv, run.log) is NOT in
+    # the commit — commit_cycle runs a mixed `git reset` (clears the index, keeps the
+    # worktree) BEFORE the governed `git add -- <paths>`, so the commit contains exactly
+    # the governed set.
+    calls: list[list[str]] = []
+
+    def runner(argv: list[str]) -> tuple[str, int]:
+        calls.append(argv)
+        if argv[-2:] == ["rev-parse", "HEAD"]:
+            return ("sha1", 0)
+        return ("", 0)
+
+    g = gitops.GitOps(runner=runner, repo="/repo")
+    g.commit_cycle("/wt", "m", impl_ticket="t.md", scope_files=["a.py"])
+    # a mixed `git reset` runs FIRST, clearing any pre-staged paths from the index
+    assert calls[0][:3] == ["git", "-C", "/wt"]
+    assert calls[0][3] == "reset"
+    # then the governed add — the artifact is never staged
+    add = [c for c in calls if "add" in c][0]
+    assert ".verdict.yaml" not in add
+    assert ".venv" not in add
+    assert "run.log" not in add
+
+
+def test_commit_cycle_raises_when_commit_fails(tmp_path):
+    # maps to: a failed `git commit` (Husky rejection, empty index) raises instead of
+    # returning a stale sha that would let the ref-advance assert pass falsely.
+    calls: list[list[str]] = []
+
+    def runner(argv: list[str]) -> tuple[str, int]:
+        calls.append(argv)
+        if "commit" in argv:
+            return ("", 1)  # commit rejected
+        return ("", 0)
+
+    g = gitops.GitOps(runner=runner, repo="/repo")
+    with pytest.raises(gitops.GitError):
+        g.commit_cycle("/wt", "m", impl_ticket="t.md", scope_files=["a.py"])
+
+
+def test_commit_cycle_raises_when_rev_parse_fails(tmp_path):
+    # maps to: a failed `git rev-parse HEAD` raises rather than returning a stale sha.
+    def runner(argv: list[str]) -> tuple[str, int]:
+        if argv[-2:] == ["rev-parse", "HEAD"]:
+            return ("", 1)
+        return ("", 0)
+
+    g = gitops.GitOps(runner=runner, repo="/repo")
+    with pytest.raises(gitops.GitError):
+        g.commit_cycle("/wt", "m", impl_ticket="t.md", scope_files=["a.py"])
 
 
 def test_branch_sha_builds_argv():
