@@ -453,6 +453,28 @@ def test_human_gate_writes_no_narrative_row(tmp_path):
     assert not (tmp_path / "state.db").exists()
 
 
+def test_verdict_parsed_from_raw_message_despite_terminal_chrome(tmp_path):
+    # Regression (decision 21): the terminal surface has herdr chrome AFTER the trailer
+    # (separators + the ~/path (branch) + ↑…↓… status bar), so parse_trailer on terminal
+    # text reads the status bar -> UNPARSEABLE -> HUMAN_GATE. The verifier's RAW last
+    # message (pi session JSONL) ends cleanly with the trailer, so the cycle routes PASS.
+    terminal = (
+        "review prose\n"
+        "VERDICT overall=PASS\n"
+        "───────────────────────────────────────────────\n"
+        "~/projects/sf-impl-02 (impl-02)\n"
+        "↑375k ↓3k 10.6%/262k (auto)  qwen3.5:cloud • medium"
+    )
+    raw = "review prose\nVERDICT overall=PASS"
+    unit = make_unit(tmp_path)
+    m = herdr.MockHerdr()
+    m.feed_read("impl-01", "impl output c1")
+    m.feed_read("ver-01", terminal)  # terminal surface (chrome) — would fail parse_trailer
+    m.feed_last_message("ver-01", raw)  # raw last message — clean trailer
+    result, _commits, _wt = run(unit, m, tmp_path)
+    assert result.outcome is cycle.CycleOutcome.DONE
+
+
 def test_in_progress_persisted_when_not_terminal(tmp_path):
     # cap=1, FAIL -> CAP_REACHED: status written in_progress at cycle start, no terminal write
     unit = make_unit(tmp_path)

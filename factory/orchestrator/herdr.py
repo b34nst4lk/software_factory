@@ -31,6 +31,7 @@ class HerdrPort(Protocol):
         self, name: str, prompt: str, *, until: str | list[str], timeout_ms: int
     ) -> None: ...
     def agent_read(self, name: str, lines: int) -> str: ...
+    def agent_last_message(self, name: str) -> str: ...
     def agent_wait(self, name: str, *, until: str, timeout_ms: int) -> None: ...
     def report_metadata(self, pane_id: str, summary: str) -> None: ...
 
@@ -60,6 +61,36 @@ def _extract_pane_id(data: object, *prefix: str) -> str:
 def _default_runner(argv: list[str]) -> tuple[str, int]:
     res = subprocess.run(argv, capture_output=True, text=True)
     return res.stdout, res.returncode
+
+
+def _last_assistant_text(session_path: str) -> str:
+    """Return the text of the last assistant message in a pi session JSONL.
+
+    pi's session JSONL holds the raw messages (no terminal chrome). Each line is a JSON
+    record; an assistant record carries ``message.role == "assistant"`` with
+    ``content`` that is either a string or a list of ``{text: ...}`` blocks. Returns the
+    last assistant message's text, or ``""`` if none.
+    """
+    rows: list[dict[str, object]] = []
+    with open(session_path) as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    for record in reversed(rows):
+        msg = record.get("message") if isinstance(record, dict) else None
+        if isinstance(msg, dict) and msg.get("role") == "assistant":
+            content = msg.get("content")
+            if isinstance(content, list):
+                return "".join(
+                    block.get("text", "") for block in content if isinstance(block, dict)
+                )
+            return str(content or "")
+    return ""
 
 
 class Herdr:
@@ -114,6 +145,19 @@ class Herdr:
         )
         return out
 
+    def agent_last_message(self, name: str) -> str:
+        """Return the agent's last assistant message text from pi's session JSONL (raw).
+
+        herdr's ``agent get`` exposes the pi session JSONL path (``agent_session.value``);
+        that JSONL holds pi's raw messages. The last assistant message is the agent's true
+        last reply — no terminal chrome, no wrapping — the reliable source for verdict
+        parsing (decision 21: the terminal surface is the wrong seam).
+        """
+        out, _ = self._cmd(["agent", "get", name])
+        data = json.loads(out)
+        session_path = data["result"]["agent"]["agent_session"]["value"]
+        return _last_assistant_text(session_path)
+
     def agent_wait(self, name: str, *, until: str, timeout_ms: int) -> None:
         self._cmd(["agent", "wait", name, "--until", until, "--timeout", str(timeout_ms)])
 
@@ -138,6 +182,7 @@ class MockHerdr:
     def __init__(self) -> None:
         self._next_pane = 0
         self._reads: dict[str, list[str]] = {}
+        self._last_messages: dict[str, list[str]] = {}
         self._started: dict[str, tuple[str, str]] = {}
         self.prompts: dict[str, list[str]] = {}
         self.metadata: list[tuple[str, str]] = []
@@ -168,6 +213,17 @@ class MockHerdr:
         if not queue:
             return ""
         return queue.pop(0)
+
+    def feed_last_message(self, name: str, output: str) -> None:
+        self._last_messages.setdefault(name, []).append(output)
+
+    def agent_last_message(self, name: str) -> str:
+        # Raw last-message channel (decision 21). Prefer an explicit feed_last_message;
+        # fall back to the feed_read queue so existing tests stay green.
+        queue = self._last_messages.setdefault(name, [])
+        if queue:
+            return queue.pop(0)
+        return self.agent_read(name, 1000)
 
     def agent_wait(self, name: str, *, until: str, timeout_ms: int) -> None:
         return None

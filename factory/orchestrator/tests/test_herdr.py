@@ -74,6 +74,42 @@ def test_agent_read_returns_pane_stdout():
     assert h.agent_read("impl-01", 200) == "the implementer output text"
 
 
+def test_agent_last_message_reads_last_assistant_from_pi_session_jsonl(tmp_path):
+    # maps to: agent_last_message returns the verifier's raw last message (pi session
+    # JSONL), not the terminal surface. The last assistant message's content may be a
+    # list of {text: ...} blocks.
+    sess = tmp_path / "session.jsonl"
+    rows = [
+        {"message": {"role": "user", "content": "review this"}},
+        {"message": {"role": "assistant", "content": "earlier reply"}},
+        {
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "VERDICT overall=PASS"}],
+            }
+        },
+    ]
+    sess.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+
+    def runner(argv: list[str]) -> tuple[str, int]:
+        assert argv[:4] == ["herdr", "agent", "get", "ver-01"]
+        return (json.dumps({"result": {"agent": {"agent_session": {"value": str(sess)}}}}), 0)
+
+    h = herdr.Herdr(runner=runner)
+    assert h.agent_last_message("ver-01") == "VERDICT overall=PASS"
+
+
+def test_mock_agent_last_message_prefers_explicit_then_falls_back_to_feed_read():
+    m = herdr.MockHerdr()
+    m.feed_read("ver-01", "terminal text with chrome\nVERDICT overall=PASS\n---\nstatusbar")
+    m.feed_last_message("ver-01", "raw message\nVERDICT overall=PASS")
+    assert m.agent_last_message("ver-01") == "raw message\nVERDICT overall=PASS"
+    # fallback when no explicit feed_last_message (keeps existing tests green)
+    m2 = herdr.MockHerdr()
+    m2.feed_read("ver-01", "only terminal")
+    assert m2.agent_last_message("ver-01") == "only terminal"
+
+
 def test_report_metadata_builds_token_arg():
     seen: list[str] = []
 

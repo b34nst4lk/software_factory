@@ -159,7 +159,9 @@ def run_cycle(
             until=["idle", "done", "blocked"],
             timeout_ms=config.prompt_timeout_ms,
         )
-        ver_out = herdr.agent_read(panes.ver_name, config.read_lines)
+        # Read the verifier's RAW last message (pi session JSONL), not the terminal
+        # surface — terminal text carries herdr chrome after the trailer (decision 21).
+        ver_out = herdr.agent_last_message(panes.ver_name)
 
         # 3. parse + route — cascade (decision 15): verdict FILE → one-line routing
         #    trailer → (bounded re-prompt exactly once) → file/trailer → HUMAN_GATE.
@@ -175,7 +177,7 @@ def run_cycle(
                 until=["idle", "done", "blocked"],
                 timeout_ms=config.prompt_timeout_ms,
             )
-            ver_out = herdr.agent_read(panes.ver_name, config.read_lines)
+            ver_out = herdr.agent_last_message(panes.ver_name)
             v = _parse_verdict(ver_out, worktree)
             if v.overall is verdict.Overall.UNPARSEABLE:
                 # never-assume: no commit happened, so no narrative row. The invariant is
