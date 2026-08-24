@@ -1,6 +1,8 @@
-"""Tests for guard.py — the value-only frontmatter + append-only run.log guard util."""
+"""Tests for guard.py — the value-only frontmatter + staged-paths-subset guard util."""
 
 from __future__ import annotations
+
+import pytest
 
 import guard
 
@@ -58,26 +60,7 @@ def test_body_changed_true_when_prose_edited():
     assert guard.body_changed(BEFORE, BODY_EDITED) is True
 
 
-# ---- run.log append-only ----
-
-APPEND_ONLY_DIFF = "@@ -1,1 +1,2 @@\n" " line one\n" "+line two\n"
-DELETION_DIFF = "@@ -1,2 +1,1 @@\n" " line one\n" "-line two\n"
-ONLY_HUNK_HEADER_MINUS = "@@ -1,1 +1,1 @@\n" " line one\n"
-
-
-def test_run_log_has_deletions_false_for_append_only():
-    assert guard.run_log_has_deletions(APPEND_ONLY_DIFF) is False
-
-
-def test_run_log_has_deletions_false_when_only_hunk_header_minus():
-    assert guard.run_log_has_deletions(ONLY_HUNK_HEADER_MINUS) is False
-
-
-def test_run_log_has_deletions_true_for_a_removed_line():
-    assert guard.run_log_has_deletions(DELETION_DIFF) is True
-
-
-# ---- check_impl_file / check_run_log_diff ----
+# ---- check_impl_file ----
 
 
 def test_check_impl_file_value_only_change_no_violations():
@@ -102,12 +85,93 @@ def test_check_impl_file_new_file_allowed():
     assert v == []
 
 
-def test_check_run_log_diff_append_only_ok():
-    v = guard.check_run_log_diff(APPEND_ONLY_DIFF, "run.log")
-    assert v == []
+# ---- check_staged_paths: staged paths ⊆ {impl-ticket} ∪ scope_files ----
+
+IMPL = (
+    "---\nid: impl-01\nstatus: open\ncycle: 0\nlast_verdict: \"\"\n"
+    "scope_files: [factory/greet.py]\n---\nImplement greet.\n"
+)
+IMPL_PATH = ".scratch/sf/impl/01-greet.md"
 
 
-def test_check_run_log_diff_deletion_rejected():
-    v = guard.check_run_log_diff(DELETION_DIFF, "run.log")
+def _contents(impl: str = IMPL, **extra: str) -> dict[str, str]:
+    c: dict[str, str] = {IMPL_PATH: impl}
+    c.update(extra)
+    return c
+
+
+def test_governed_only_commit_accepted():
+    # maps to: guard accepts a commit whose staged paths are exactly {impl-ticket} ∪ scope_files
+    paths = [IMPL_PATH, "factory/greet.py"]
+    contents = _contents(factory_greet_py="def greet():\n    pass\n")
+    assert guard.check_staged_paths(paths, contents) == []
+
+
+def test_extra_non_governed_file_rejected():
+    # maps to: guard rejects a commit whose staged paths are NOT a subset of {impl-ticket} ∪ scope_files
+    paths = [IMPL_PATH, "factory/greet.py", "factory/other.py"]
+    contents = _contents(
+        factory_greet_py="def greet():\n    pass\n", factory_other_py="x\n"
+    )
+    v = guard.check_staged_paths(paths, contents)
     assert len(v) == 1
-    assert v[0].rule == "append-only"
+    assert v[0].path == "factory/other.py"
+    assert v[0].rule == "scope"
+
+
+def test_scope_files_read_from_impl_frontmatter():
+    # maps to: guard reads scope_files from the staged impl-ticket's YAML frontmatter
+    paths = [IMPL_PATH, "factory/greet.py"]
+    contents = _contents(factory_greet_py="def greet():\n    pass\n")
+    assert guard.check_staged_paths(paths, contents) == []
+
+
+def test_scope_files_absent_means_only_impl_ticket_governed():
+    # maps to: guard reads scope_files from the staged impl-ticket's YAML frontmatter
+    no_scope = (
+        "---\nid: impl-01\nstatus: open\ncycle: 0\nlast_verdict: \"\"\n---\n"
+        "Implement greet.\n"
+    )
+    paths = [IMPL_PATH, "factory/greet.py"]
+    contents = _contents(impl=no_scope, factory_greet_py="x\n")
+    v = guard.check_staged_paths(paths, contents)
+    assert len(v) == 1
+    assert v[0].path == "factory/greet.py"
+
+
+@pytest.mark.parametrize(
+    "denied",
+    [
+        ".verdict.yaml",
+        ".verdict.yml",
+        ".venv",
+        "data.db",
+        "src/__pycache__/x.py",
+    ],
+)
+def test_denylist_entry_rejected(denied):
+    # maps to: guard hard-denies a staged path matching the denylist regardless of scope_files
+    paths = [IMPL_PATH, "factory/greet.py", denied]
+    contents = _contents(factory_greet_py="x\n", **{denied: "x\n"})
+    v = guard.check_staged_paths(paths, contents)
+    assert any(x.path == denied and x.rule == "denylist" for x in v)
+
+
+def test_denied_path_rejected_even_if_in_scope_files():
+    # maps to: a denied path is rejected even if it were in scope_files
+    impl = (
+        "---\nid: impl-01\nstatus: open\ncycle: 0\nlast_verdict: \"\"\n"
+        "scope_files: [.venv]\n---\nImplement greet.\n"
+    )
+    paths = [IMPL_PATH, ".venv"]
+    contents = _contents(impl=impl, **{".venv": "x\n"})
+    v = guard.check_staged_paths(paths, contents)
+    assert any(x.path == ".venv" and x.rule == "denylist" for x in v)
+
+
+def test_run_log_rejected_as_non_governed():
+    # maps to: a staged run.log is rejected as a non-governed path (no longer special-cased)
+    paths = [IMPL_PATH, "factory/greet.py", "run.log"]
+    contents = _contents(factory_greet_py="x\n", **{"run.log": "boot\n"})
+    v = guard.check_staged_paths(paths, contents)
+    assert any(x.path == "run.log" and x.rule == "scope" for x in v)

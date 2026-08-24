@@ -75,22 +75,11 @@ def test_body_edit_is_rejected(tmp_path, monkeypatch):
     assert guard.main([]) == 1
 
 
-def test_run_log_deletion_is_rejected(tmp_path, monkeypatch):
-    d = init_repo(tmp_path)
-    monkeypatch.chdir(d)
-    with open("run.log", "w") as fh:
-        fh.write("boot\n")  # unchanged line
-    # rewrite run.log removing the "boot" line (a deletion in the diff)
-    with open("run.log", "w") as fh:
-        fh.write("only-new\n")
-    git("add", "-f", "run.log", cwd=d)
-    assert guard.main([]) == 1
-
-
-def test_run_log_append_is_accepted(tmp_path, monkeypatch):
+def test_run_log_is_rejected_as_non_governed(tmp_path, monkeypatch):
+    # maps to: a staged run.log is rejected as a non-governed path (no longer special-cased)
     d = init_repo(tmp_path)
     monkeypatch.chdir(d)
     with open("run.log", "a") as fh:
         fh.write("appended line\n")
     git("add", "-f", "run.log", cwd=d)
-    assert guard.main([]) == 0
+    assert guard.main([]) == 1
