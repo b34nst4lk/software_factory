@@ -272,3 +272,31 @@ def test_quit_persists_status_cancelled_to_frontmatter(tmp_path):
     assert orch.run() == {"impl-01": "cancelled"}
     impl = tmp_path / "sf-impl-01" / ".scratch" / "sf" / "impl" / "01-greet.md"
     assert tickets.parse_impl_file(str(impl)).status == "cancelled"
+
+
+def test_mock_run_threads_db_path_and_logs_rows(tmp_path):
+    # maps to: db_path is threaded from config into run_cycle (not hardcoded); a mock
+    # run with a temp db_path produces rows in that DB.
+    import state
+
+    units, cfg, m, gh, gops = setup(tmp_path)
+    db_path = str(tmp_path / "state.db")
+    cfg = cfg.with_overrides(db_path=db_path)
+    m.feed_read("impl-01", "c1")
+    m.feed_read("ver-01", PASS_VERDICT)
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=lambda: "c",
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
+    )
+    assert orch.run() == {"impl-01": "done"}
+    rows = state.query_cycles(db_path, unit_id="impl-01")
+    assert len(rows) == 1
+    assert rows[0]["verdict"] == "PASS"
+    assert rows[0]["action"] == "DONE"
+    assert rows[0]["commit_sha"]  # non-empty sha threaded from the commit closure

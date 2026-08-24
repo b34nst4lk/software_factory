@@ -6,6 +6,7 @@ All knobs the orchestrator needs in one frozen record. The CLI overlays a few fl
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, replace
 
 IMPLEMENTER_MODEL = "deepseek-v4-flash:cloud"
@@ -41,7 +42,16 @@ class Config:
     gh_repo: str = ""
     worktree_parent: str = ".."
     herdr_session: str = ""  # herdr --session <name>; "" = default socket
+    db_path: str = ""  # per-repo narrative DB; resolved by default() (never empty in a live Config)
     implementer_env_hint: str = ""  # repo-specific test-runner hint injected into the impl prompt
+
+    def __post_init__(self) -> None:
+        # Make the invalid state impossible: a live Config must carry a narrative DB path.
+        # default() sets it; direct construction without it is a bug, not a silent no-op.
+        assert self.db_path, (
+            "Config.db_path must be set (the per-repo narrative DB); "
+            "use config.default() or pass db_path explicitly"
+        )
 
     def with_overrides(self, **kw: object) -> Config:
         return replace(self, **{k: v for k, v in kw.items() if v is not None})  # type: ignore[arg-type]
@@ -60,4 +70,9 @@ class Config:
 
 
 def default(repo_path: str, effort: str, impl_glob: str) -> Config:
-    return Config(repo_path=repo_path, effort=effort, impl_glob=impl_glob)
+    return Config(
+        repo_path=repo_path,
+        effort=effort,
+        impl_glob=impl_glob,
+        db_path=os.path.join(repo_path, ".factory", "state.db"),
+    )

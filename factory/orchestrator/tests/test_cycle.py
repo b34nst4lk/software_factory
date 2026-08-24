@@ -9,6 +9,7 @@ import pytest
 
 import cycle
 import herdr
+import state
 import tickets
 
 PASS_VERDICT = """\
@@ -64,6 +65,7 @@ class FakeConfig:
     read_lines: int = 100
     implementer_model: str = "deepseek-v4-flash:cloud"
     verifier_model: str = "qwen3.5:cloud"
+    effort: str = "sf"
 
 
 def make_unit(tmp_path) -> tickets.ImplTicket:
@@ -86,6 +88,7 @@ def run(unit, m, tmp_path, *, cap=5, resolution=None):
 
     def commit(unit_id, c, overall, wt):
         commits.append((unit_id, c, overall, wt))
+        return f"{unit_id}-c{c}"
 
     result = cycle.run_cycle(
         unit=unit,
@@ -98,6 +101,7 @@ def run(unit, m, tmp_path, *, cap=5, resolution=None):
         issues_dir=str(issues),
         next_esc_number=1,
         resolution=resolution,
+        db_path=str(tmp_path / "state.db"),
     )
     return result, commits, worktree
 
@@ -223,7 +227,7 @@ def test_verdict_file_takes_precedence_over_pane_text(tmp_path):
     cfg = FakeConfig(cycle_cap=5)
 
     def commit(uid, c, o, wt):
-        pass
+        return f"{uid}-c{c}"
 
     result = cycle.run_cycle(
         unit=unit,
@@ -235,6 +239,7 @@ def test_verdict_file_takes_precedence_over_pane_text(tmp_path):
         commit=commit,
         issues_dir=str(issues),
         next_esc_number=1,
+        db_path=str(tmp_path / "state.db"),
     )
     assert result.outcome is cycle.CycleOutcome.DONE
 
@@ -253,6 +258,7 @@ def test_cycle_counter_persists_across_resume(tmp_path):
 
     def commit(uid, c, o, wt):
         commits.append((uid, c, o))
+        return f"{uid}-c{c}"
 
     # cycle 1 -> BLOCKED
     m.feed_read("impl-01", "c1")
@@ -267,6 +273,7 @@ def test_cycle_counter_persists_across_resume(tmp_path):
         commit=commit,
         issues_dir=str(issues),
         next_esc_number=10,
+        db_path=str(tmp_path / "state.db"),
     )
     assert r1.outcome is cycle.CycleOutcome.ESCALATE
     assert tickets.parse_impl_file(unit.path).cycle == 1  # persisted
@@ -285,6 +292,7 @@ def test_cycle_counter_persists_across_resume(tmp_path):
         issues_dir=str(issues),
         next_esc_number=10,
         resolution="greet(None) raises TypeError",
+        db_path=str(tmp_path / "state.db"),
     )
     assert r2.outcome is cycle.CycleOutcome.DONE
     assert r2.final_cycle == 2  # the bug: this was 1 before the fix
@@ -310,9 +318,10 @@ def test_done_persists_status_done(tmp_path):
         worktree=worktree,
         branch="impl-01",
         panes=make_panes(),
-        commit=lambda *a: None,
+        commit=lambda *a: "sha",
         issues_dir=str(issues),
         next_esc_number=10,
+        db_path=str(tmp_path / "state.db"),
     )
     assert tickets.parse_impl_file(unit.path).status == "done"
 
@@ -333,9 +342,10 @@ def test_blocked_persists_status_parked(tmp_path):
         worktree=worktree,
         branch="impl-01",
         panes=make_panes(),
-        commit=lambda *a: None,
+        commit=lambda *a: "sha",
         issues_dir=str(issues),
         next_esc_number=10,
+        db_path=str(tmp_path / "state.db"),
     )
     assert tickets.parse_impl_file(unit.path).status == "parked"
 
@@ -429,6 +439,20 @@ def test_reprompt_still_unparseable_routes_to_human_gate(tmp_path):
     assert len(m.prompts["ver-01"]) == 2
 
 
+def test_human_gate_writes_no_narrative_row(tmp_path):
+    # maps to: HUMAN_GATE writes no narrative row (no commit happened; one row per
+    # COMMITTED cycle, so a re-run on the gate's "continue" does not duplicate).
+    unit = make_unit(tmp_path)
+    m = herdr.MockHerdr()
+    m.feed_read("impl-01", "impl output c1")
+    m.feed_read("ver-01", "garbled, no verdict")
+    m.feed_read("ver-01", "still garbled, no verdict")
+    result, _commits, _wt = run(unit, m, tmp_path)
+    assert result.outcome is cycle.CycleOutcome.HUMAN_GATE
+    # No commit happened, so log_cycle never ran and the DB file was never created.
+    assert not (tmp_path / "state.db").exists()
+
+
 def test_in_progress_persisted_when_not_terminal(tmp_path):
     # cap=1, FAIL -> CAP_REACHED: status written in_progress at cycle start, no terminal write
     unit = make_unit(tmp_path)
@@ -446,8 +470,67 @@ def test_in_progress_persisted_when_not_terminal(tmp_path):
         worktree=worktree,
         branch="impl-01",
         panes=make_panes(),
-        commit=lambda *a: None,
+        commit=lambda *a: "sha",
         issues_dir=str(issues),
         next_esc_number=10,
+        db_path=str(tmp_path / "state.db"),
     )
     assert tickets.parse_impl_file(unit.path).status == "in_progress"
+
+
+# ---- decision 17: per-repo narrative DB (state.py) threading ----
+
+
+def test_run_cycle_logs_one_row_per_cycle_after_routing(tmp_path):
+    # maps to: run_cycle writes exactly one log_cycle row per cycle, AFTER the verdict
+    # is routed, carrying verdict (PASS) + action (DONE) + the cycle's commit_sha.
+    unit = make_unit(tmp_path)
+    m = herdr.MockHerdr()
+    db_path = str(tmp_path / "state.db")
+    m.feed_read("impl-01", "c1")
+    m.feed_read("ver-01", PASS_VERDICT)
+    result, commits, worktree = run(unit, m, tmp_path)
+    assert result.outcome is cycle.CycleOutcome.DONE
+    rows = state.query_cycles(db_path, unit_id="impl-01")
+    assert len(rows) == 1  # exactly one row for the single cycle
+    row = rows[0]
+    assert row["verdict"] == "PASS"
+    assert row["action"] == "DONE"
+    assert row["commit_sha"] == "impl-01-c1"  # the commit callback's returned sha
+    assert row["cycle_no"] == 1
+    assert row["branch"] == "impl-01"
+    assert row["effort"] == "sf"
+
+
+def test_run_cycle_logs_retry_then_cap_reached(tmp_path):
+    # maps to: a FAIL-then-FAIL run logs one row per cycle; the final cycle's action is
+    # CAP_REACHED (the 5-cycle backstop), earlier cycles are RETRY.
+    unit = make_unit(tmp_path)
+    m = herdr.MockHerdr()
+    db_path = str(tmp_path / "state.db")
+    m.feed_read("impl-01", "c1")
+    m.feed_read("impl-01", "c2")
+    m.feed_read("ver-01", FAIL_VERDICT)
+    m.feed_read("ver-01", FAIL_VERDICT)
+    result, commits, worktree = run(unit, m, tmp_path, cap=2)
+    assert result.outcome is cycle.CycleOutcome.CAP_REACHED
+    rows = state.query_cycles(db_path, unit_id="impl-01")
+    assert len(rows) == 2  # one row per cycle
+    assert [r["action"] for r in rows] == ["RETRY", "CAP_REACHED"]
+    assert [r["verdict"] for r in rows] == ["FAIL", "FAIL"]
+    assert [r["commit_sha"] for r in rows] == ["impl-01-c1", "impl-01-c2"]
+
+
+def test_run_cycle_logs_escalate_row(tmp_path):
+    # maps to: a BLOCKED verdict routes to ESCALATE and logs one row with that action.
+    unit = make_unit(tmp_path)
+    m = herdr.MockHerdr()
+    db_path = str(tmp_path / "state.db")
+    m.feed_read("impl-01", "c1")
+    m.feed_read("ver-01", BLOCKED_VERDICT)
+    result, commits, worktree = run(unit, m, tmp_path)
+    assert result.outcome is cycle.CycleOutcome.ESCALATE
+    rows = state.query_cycles(db_path, unit_id="impl-01")
+    assert len(rows) == 1
+    assert rows[0]["verdict"] == "BLOCKED"
+    assert rows[0]["action"] == "ESCALATE"

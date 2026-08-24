@@ -1,39 +1,60 @@
 ---
 id: impl-01
-decision: "17 — git-as-state durability"
-title: "SQLite cycle_log DB + threading (the cross-branch narrative)"
+decision: 17 — git-as-state durability
+title: SQLite cycle_log DB + threading (the cross-branch narrative)
 scope_files:
-  - factory/orchestrator/state.py
-  - factory/orchestrator/tests/test_state.py
-  - factory/orchestrator/config.py
-  - factory/orchestrator/tests/test_config.py
-  - factory/orchestrator/cycle.py
-  - factory/orchestrator/tests/test_cycle.py
-  - factory/orchestrator/run.py
-  - factory/orchestrator/tests/test_run.py
-  - .gitignore
+- factory/orchestrator/state.py
+- factory/orchestrator/tests/test_state.py
+- factory/orchestrator/config.py
+- factory/orchestrator/tests/test_config.py
+- factory/orchestrator/cycle.py
+- factory/orchestrator/tests/test_cycle.py
+- factory/orchestrator/run.py
+- factory/orchestrator/tests/test_run.py
+- .gitignore
 acceptance:
-  - story: "As the orchestrator, I can query one per-repo DB for every cycle across all units and branches"
-    behaviors:
-      - { behavior: "state.open_db(path) creates <repo>/.factory/state.db with a cycle_log table (CREATE TABLE IF NOT EXISTS); idempotent (calling twice does not error or duplicate)", outcome: success }
-      - { behavior: "state.open_db sets PRAGMA journal_mode=WAL and PRAGMA user_version (for future stepwise migrations)", outcome: success }
-      - { behavior: "state.log_cycle writes one row with columns effort, unit_id, branch, cycle_no, verdict, action, commit_sha, ts", outcome: success }
-      - { behavior: "rows for multiple efforts/units/cycles coexist in the one DB and are queryable (e.g. all cycles for a unit; every unit across branches)", outcome: success }
-      - { behavior: "config.db_path defaults to <repo>/.factory/state.db", outcome: success }
-      - { behavior: ".factory/ is gitignored wholesale (the DB is local runtime state, never committed)", outcome: failure }
-      - { behavior: "run_cycle writes exactly one log_cycle row per cycle, after the verdict is routed, carrying verdict (PASS/FAIL/BLOCKED/UNPARSEABLE) + action (DONE/RETRY/ESCALATE/HUMAN_GATE/CAP_REACHED) + the cycle's commit_sha", outcome: success }
-      - { behavior: "db_path is threaded from config into run_cycle (not hardcoded); a mock run with a temp db_path produces rows in that DB", outcome: success }
+- story: As the orchestrator, I can query one per-repo DB for every cycle across all
+    units and branches
+  behaviors:
+  - behavior: state.open_db(path) creates <repo>/.factory/state.db with a cycle_log
+      table (CREATE TABLE IF NOT EXISTS); idempotent (calling twice does not error
+      or duplicate)
+    outcome: success
+  - behavior: state.open_db sets PRAGMA journal_mode=WAL and PRAGMA user_version (for
+      future stepwise migrations)
+    outcome: success
+  - behavior: state.log_cycle writes one row with columns effort, unit_id, branch,
+      cycle_no, verdict, action, commit_sha, ts
+    outcome: success
+  - behavior: rows for multiple efforts/units/cycles coexist in the one DB and are
+      queryable (e.g. all cycles for a unit; every unit across branches)
+    outcome: success
+  - behavior: config.db_path defaults to <repo>/.factory/state.db
+    outcome: success
+  - behavior: .factory/ is gitignored wholesale (the DB is local runtime state, never
+      committed)
+    outcome: failure
+  - behavior: run_cycle writes exactly one log_cycle row per cycle, after the verdict
+      is routed, carrying verdict (PASS/FAIL/BLOCKED/UNPARSEABLE) + action (DONE/RETRY/ESCALATE/HUMAN_GATE/CAP_REACHED)
+      + the cycle's commit_sha
+    outcome: success
+  - behavior: db_path is threaded from config into run_cycle (not hardcoded); a mock
+      run with a temp db_path produces rows in that DB
+    outcome: success
 verify:
-  - "behaviors captured by tests; tests map 1:1 to acceptance.behaviors"
-  - "open_db uses CREATE TABLE IF NOT EXISTS (idempotent) and sets PRAGMA user_version + WAL"
-  - "log_cycle stores verdict in {PASS,FAIL,BLOCKED,UNPARSEABLE} and action in {DONE,RETRY,ESCALATE,HUMAN_GATE,CAP_REACHED}"
-  - "one DB per repo; the effort column distinguishes efforts; nothing in .factory/ is ever staged (it is gitignored)"
-  - "run_cycle calls log_cycle exactly once per cycle (assert the row count after a mock run)"
+- behaviors captured by tests; tests map 1:1 to acceptance.behaviors
+- open_db uses CREATE TABLE IF NOT EXISTS (idempotent) and sets PRAGMA user_version
+  + WAL
+- log_cycle stores verdict in {PASS,FAIL,BLOCKED,UNPARSEABLE} and action in {DONE,RETRY,ESCALATE,HUMAN_GATE,CAP_REACHED}
+- one DB per repo; the effort column distinguishes efforts; nothing in .factory/ is
+  ever staged (it is gitignored)
+- run_cycle calls log_cycle exactly once per cycle (assert the row count after a mock
+  run)
 model: deepseek-v4-flash:cloud
 depends_on: []
-status: open
-cycle: 0
-last_verdict: ""
+status: done
+cycle: 1
+last_verdict: PASS
 ---
 Add a per-repo SQLite **narrative** DB that logs one row per cycle across every unit and
 branch, replacing the per-worktree `run.log` narrative (the `run.log` removal itself is a

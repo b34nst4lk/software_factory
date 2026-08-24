@@ -25,6 +25,7 @@ from __future__ import annotations
 import enum
 import os
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -32,11 +33,12 @@ from typing import Protocol
 
 import escalate
 import prompts
+import state
 import tickets
 import verdict
 from herdr import HerdrPort
 
-CommitFn = Callable[[str, int, str, str], None]
+CommitFn = Callable[[str, int, str, str], str]
 
 
 class CycleOutcome(enum.Enum):
@@ -72,6 +74,9 @@ class _CfgLike(Protocol):
 
     @property
     def read_lines(self) -> int: ...
+
+    @property
+    def effort(self) -> str: ...
 
 
 _VERDICT_FILE_RE = re.compile(r"VERDICT_FILE:\s*(\S+)", re.MULTILINE)
@@ -112,7 +117,9 @@ def run_cycle(
     next_esc_number: int = 1,
     resolution: str | None = None,
     cap_override: int | None = None,
+    db_path: str = "",
 ) -> CycleResult:
+    assert db_path, "run_cycle requires a db_path (the per-repo narrative DB)"
     cap = cap_override if cap_override is not None else config.cycle_cap
     prior_feedback: str | None = None
     # Seed from the persisted frontmatter `cycle` (git-as-state: the frontmatter is the
@@ -171,6 +178,8 @@ def run_cycle(
             ver_out = herdr.agent_read(panes.ver_name, config.read_lines)
             v = _parse_verdict(ver_out, worktree)
             if v.overall is verdict.Overall.UNPARSEABLE:
+                # never-assume: no commit happened, so no narrative row. The invariant is
+                # one row per COMMITTED cycle; the cycle re-runs on the gate's "continue".
                 return CycleResult(CycleOutcome.HUMAN_GATE, unit.id, cycle_no, raw_verdict=ver_out)
         action = verdict.route(v)
         overall_str = v.overall.value
@@ -188,8 +197,34 @@ def run_cycle(
             unit.path, cycle=cycle_no, last_verdict=overall_str, status=status_str
         )
         tickets.append_run_log(worktree, f"{unit.id} c{cycle_no} {overall_str}")
-        commit(unit.id, cycle_no, overall_str, worktree)
+        commit_sha = commit(unit.id, cycle_no, overall_str, worktree)
         herdr.report_metadata(panes.impl_pane, f"{unit.id} c{cycle_no} {overall_str}")
+
+        # 5. narrative: one row per cycle, AFTER the verdict is routed (so the action
+        #    is known). A RETRY on the final cycle is the 5-cycle backstop -> CAP_REACHED.
+        if action is verdict.Action.RETRY and cycle_no >= cap:
+            action_str = "CAP_REACHED"
+        else:
+            action_str = action.value.upper()
+        # Narrative is best-effort: a DB error must never abort the spine after the
+        # cycle's commit has already landed.
+        try:
+            state.log_cycle(
+                db_path,
+                effort=config.effort,
+                unit_id=unit.id,
+                branch=branch,
+                cycle_no=cycle_no,
+                verdict=overall_str,
+                action=action_str,
+                commit_sha=commit_sha,
+                ts=str(time.time()),
+            )
+        except Exception as exc:  # noqa: BLE001 - best-effort narrative, never fatal
+            print(
+                f"warning: log_cycle failed ({exc!r}); "
+                f"{unit.id} c{cycle_no} committed but unlogged"
+            )
 
         if action is verdict.Action.DONE:
             return CycleResult(CycleOutcome.DONE, unit.id, cycle_no)
