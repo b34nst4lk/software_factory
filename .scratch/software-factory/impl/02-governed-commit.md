@@ -32,8 +32,7 @@ verify:
   - "impl-01's log_cycle is still called once per cycle (impl-01 added it); this unit keeps that call and feeds it the returned sha"
   - "the existing cycle/run/gitops/tickets tests are updated for the removed append_run_log + the new commit_cycle signature and stay green"
 model: deepseek-v4-flash:cloud
-depends_on:
-  - impl-01
+depends_on: []
 status: open
 cycle: 0
 last_verdict: ""
