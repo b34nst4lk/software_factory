@@ -123,13 +123,9 @@ def check_staged_paths(
 
     for path in paths:
         if _denied(path):
-            violations.append(
-                Violation(path, "denylist", "path matches runtime-artifact denylist")
-            )
+            violations.append(Violation(path, "denylist", "path matches runtime-artifact denylist"))
         elif path not in governed:
-            violations.append(
-                Violation(path, "scope", "path not in {impl-ticket} ∪ scope_files")
-            )
+            violations.append(Violation(path, "scope", "path not in {impl-ticket} ∪ scope_files"))
     return violations
 
 

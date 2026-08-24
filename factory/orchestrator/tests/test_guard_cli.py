@@ -1,8 +1,10 @@
 """End-to-end guard CLI test against a real (throwaway) git repo.
 
 This is the unit test behind the Husky acceptance: a commit that adds a frontmatter
-key OR deletes a run.log line must be REJECTED, value-only changes accepted. The
-Husky pre-commit hook shells out to this same ``guard.main``.
+key must be REJECTED, value-only changes accepted. A staged ``run.log`` is also
+rejected because it is a non-governed path (not in ``{impl-ticket} ∪ scope_files``),
+not because of any append-only rule. The Husky pre-commit hook shells out to this
+same ``guard.main``.
 """
 
 from __future__ import annotations

@@ -88,7 +88,7 @@ def test_check_impl_file_new_file_allowed():
 # ---- check_staged_paths: staged paths ⊆ {impl-ticket} ∪ scope_files ----
 
 IMPL = (
-    "---\nid: impl-01\nstatus: open\ncycle: 0\nlast_verdict: \"\"\n"
+    '---\nid: impl-01\nstatus: open\ncycle: 0\nlast_verdict: ""\n'
     "scope_files: [factory/greet.py]\n---\nImplement greet.\n"
 )
 IMPL_PATH = ".scratch/sf/impl/01-greet.md"
@@ -110,9 +110,7 @@ def test_governed_only_commit_accepted():
 def test_extra_non_governed_file_rejected():
     # maps to: guard rejects a commit whose staged paths are NOT a subset of {impl-ticket} ∪ scope_files
     paths = [IMPL_PATH, "factory/greet.py", "factory/other.py"]
-    contents = _contents(
-        factory_greet_py="def greet():\n    pass\n", factory_other_py="x\n"
-    )
+    contents = _contents(factory_greet_py="def greet():\n    pass\n", factory_other_py="x\n")
     v = guard.check_staged_paths(paths, contents)
     assert len(v) == 1
     assert v[0].path == "factory/other.py"
@@ -129,8 +127,7 @@ def test_scope_files_read_from_impl_frontmatter():
 def test_scope_files_absent_means_only_impl_ticket_governed():
     # maps to: guard reads scope_files from the staged impl-ticket's YAML frontmatter
     no_scope = (
-        "---\nid: impl-01\nstatus: open\ncycle: 0\nlast_verdict: \"\"\n---\n"
-        "Implement greet.\n"
+        '---\nid: impl-01\nstatus: open\ncycle: 0\nlast_verdict: ""\n---\n' "Implement greet.\n"
     )
     paths = [IMPL_PATH, "factory/greet.py"]
     contents = _contents(impl=no_scope, factory_greet_py="x\n")
@@ -160,7 +157,7 @@ def test_denylist_entry_rejected(denied):
 def test_denied_path_rejected_even_if_in_scope_files():
     # maps to: a denied path is rejected even if it were in scope_files
     impl = (
-        "---\nid: impl-01\nstatus: open\ncycle: 0\nlast_verdict: \"\"\n"
+        '---\nid: impl-01\nstatus: open\ncycle: 0\nlast_verdict: ""\n'
         "scope_files: [.venv]\n---\nImplement greet.\n"
     )
     paths = [IMPL_PATH, ".venv"]
