@@ -107,6 +107,21 @@ def test_governed_only_commit_accepted():
     assert guard.check_staged_paths(paths, contents) == []
 
 
+def test_manual_commit_without_impl_ticket_is_not_scope_checked():
+    # Regression (bug #22): the governed-set rule applies only to per-cycle commits
+    # (an impl ticket is staged). A manual commit (e.g. editing the map) has no impl
+    # ticket; its paths are allowed, subject only to the denylist.
+    paths = [".scratch/software-factory/map.md", "AGENTS.md"]
+    contents = {".scratch/software-factory/map.md": "# map\n", "AGENTS.md": "# agents\n"}
+    assert guard.check_staged_paths(paths, contents) == []
+
+    # the denylist still applies to manual commits
+    paths2 = [".scratch/software-factory/map.md", ".verdict.yaml"]
+    contents2 = {".scratch/software-factory/map.md": "# map\n", ".verdict.yaml": "overall: PASS\n"}
+    v = guard.check_staged_paths(paths2, contents2)
+    assert len(v) == 1 and v[0].path == ".verdict.yaml"
+
+
 def test_extra_non_governed_file_rejected():
     # maps to: guard rejects a commit whose staged paths are NOT a subset of {impl-ticket} ∪ scope_files
     paths = [IMPL_PATH, "factory/greet.py", "factory/other.py"]
@@ -167,8 +182,9 @@ def test_denied_path_rejected_even_if_in_scope_files():
 
 
 def test_run_log_rejected_as_non_governed():
-    # maps to: a staged run.log is rejected as a non-governed path (no longer special-cased)
+    # maps to: a staged run.log is rejected — it is a discarded runtime artifact on
+    # the denylist (never committed), not a governed path.
     paths = [IMPL_PATH, "factory/greet.py", "run.log"]
     contents = _contents(factory_greet_py="x\n", **{"run.log": "boot\n"})
     v = guard.check_staged_paths(paths, contents)
-    assert any(x.path == "run.log" and x.rule == "scope" for x in v)
+    assert any(x.path == "run.log" and x.rule == "denylist" for x in v)

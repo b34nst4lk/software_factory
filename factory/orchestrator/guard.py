@@ -34,6 +34,8 @@ _FM_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n(.*)\Z", re.DOTALL)
 # Suffix matches (path ends with) and path-component matches (a path segment equals).
 _DENY_SUFFIXES = (".verdict.yaml", ".verdict.yml", ".db")
 _DENY_COMPONENTS = (".venv", "__pycache__")
+# Basename matches: discarded runtime artifacts that must never be committed.
+_DENY_BASENAMES = ("run.log",)
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,8 @@ def _denied(path: str) -> bool:
     """True if a staged path matches the runtime-artifact denylist."""
     if path.endswith(_DENY_SUFFIXES):
         return True
+    if path.rsplit("/", 1)[-1] in _DENY_BASENAMES:
+        return True
     return any(part in _DENY_COMPONENTS for part in path.split("/"))
 
 
@@ -124,7 +128,10 @@ def check_staged_paths(
     for path in paths:
         if _denied(path):
             violations.append(Violation(path, "denylist", "path matches runtime-artifact denylist"))
-        elif path not in governed:
+        elif impl_ticket is not None and path not in governed:
+            # The governed-set rule applies only to per-cycle commits (an impl ticket is
+            # staged). Other commits (manual edits to the map, source, docs) are not
+            # per-cycle commits and are allowed, subject only to the denylist.
             violations.append(Violation(path, "scope", "path not in {impl-ticket} ∪ scope_files"))
     return violations
 
