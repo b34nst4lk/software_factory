@@ -37,8 +37,9 @@ Cross-model review is enforced: implementer and verifier are different model fam
 
 ## Working in this repo
 
-- Tickets 04–06 are resolved and 07 is built + smoke-green live; the orchestrator (`factory/orchestrator/`), the `factory-to-tickets` skill, and the `start-factory.sh` launcher all exist. Open frontier: 15 (deterministic verdict channel), 16 (interrupted-run resumability), 17 (git-as-state durability), 14 (test-strength gate, grilling).
-- Run the factory: `./start-factory.sh software-factory --session factory` inside a herdr session that's running your wayfinder pi (one session — the orchestrator creates implementer/verifier panes as siblings). See `./start-factory.sh --help` and `factory/orchestrator/README.md`.
+- The factory lives in `factory/orchestrator/` (the deterministic spine), `factory/skills/to-tickets/` (the to-tickets skill), and `start-factory.sh` (the launcher). See `factory/orchestrator/README.md` and `./start-factory.sh --help`.
+- Run the factory: `./start-factory.sh software-factory --session factory` inside a herdr session that's running your wayfinder pi (one session — the orchestrator creates implementer/verifier panes as siblings).
+- For the current state of work (open tickets, the frontier, fog), load the [map](.scratch/software-factory/map.md). AGENTS.md holds stable guidance; the map holds active work.
 - Keep the map's Notes in sync with settled decisions; append closed tickets to Decisions-so-far.
 
 ## Glossary
@@ -50,7 +51,7 @@ These are the repo's build and tracker concepts. CONTEXT.md defines the pipeline
 - **Decision ticket** — a Wayfinder ticket. It states the question and the answer (the what and the why). A grilling resolves it. Then to-tickets consumes it.
 - **Impl ticket** — `.scratch/<effort>/impl/NN-<slug>.md`. A to-tickets work unit. It has YAML frontmatter (`id`, `scope_files`, `acceptance`, `verify`, `model`, `depends_on`, `status`, `cycle`, `last_verdict`) and a prose implementer prompt.
 - **scope_files** — the exact files a work unit may touch. They must not overlap across independent units.
-- **depends_on** — other impl ids that must complete before this unit starts. It sets the topo order. It does **not** copy the dep's code into the worktree (ticket 19).
+- **depends_on** — other impl ids that must complete before this unit starts. It sets the topo order.
 - **Cycle** — one implementer→verifier round. The orchestrator counts it. The cap is 5. A human gate can lift the cap.
 - **Verdict** — the verifier's result for a cycle. Values: `PASS`, `FAIL`, `BLOCKED`, `UNPARSEABLE`. The verifier writes `.verdict.yaml` and ends its reply with the trailer `VERDICT overall=X`.
 - **Verdict channel** — how the orchestrator reads the verdict. It reads the verifier's raw last message (pi session JSONL), then the file, then the trailer, then re-prompts once, then the human gate.
@@ -61,4 +62,4 @@ These are the repo's build and tracker concepts. CONTEXT.md defines the pipeline
 - **Denylist** — runtime artifacts that must never be committed: `.verdict.yaml`, `.verdict.yml`, `.venv`, `*.db`, `run.log`, `__pycache__`.
 - **PR-fix flow** — PR review comments (Sourcery or human) route to the impl pane. The impl addresses them. The verifier re-runs. Then the impl pushes.
 - **Dogfooding** — the factory builds itself. The factory's own features run through the pipeline.
-- **Stdin gates** — the orchestrator reads single keys from stdin. Build gates: `c` (continue), `s` (stop), `w` (escalate), `q` (quit). PR-review gates (ticket 23): `r` (re-check), `m` (merge-ready), `q` (quit).
+- **Stdin gates** — the orchestrator reads single keys from stdin. Build gates: `c` (continue), `s` (stop), `w` (escalate), `q` (quit).
