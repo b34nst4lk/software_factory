@@ -21,6 +21,8 @@
 #
 #   effort       effort slug under .scratch/ (default: the repo directory name)
 #   --pr-stage   on|off (default off; off = throwaway smoke, no GitHub PR)
+#   --gh-repo    O/R for the PR stage (e.g. b34nst4lk/software_factory). Required with
+#                --pr-stage on, else no PRs open (and deps won't merge → bug 19).
 #   --env-hint   repo-specific test-runner hint injected into the implementer prompt
 #                (default: the python pytest+hypothesis hint; the orchestrator symlinks
 #                the repo's .venv into each worktree)
@@ -45,6 +47,7 @@ export PATH="$HOME/.local/bin:$PATH"
 # ---- defaults ----
 EFFORT="$(basename "$REPO")"
 PR_STAGE="off"
+GH_REPO=""
 SESSION="factory-$(date +%s)"
 CYCLE_CAP=""
 MOCK=0
@@ -55,6 +58,7 @@ ENV_HINT="Tests use pytest + hypothesis; run them with .venv/bin/python -m pytes
 while [ $# -gt 0 ]; do
   case "$1" in
     --pr-stage)    PR_STAGE="$2"; shift 2;;
+    --gh-repo)     GH_REPO="$2"; shift 2;;
     --env-hint)    ENV_HINT="$2"; shift 2;;
     --session)     SESSION="$2"; shift 2;;
     --cycle-cap)   CYCLE_CAP="$2"; shift 2;;
@@ -90,6 +94,7 @@ ARGS=(
   --repo "$REPO"
   --pr-stage "$PR_STAGE"
   $APPROVE
+  $([ -z "$GH_REPO" ] || echo "--gh-repo" "$GH_REPO")
   --worktree-parent "$WORKTREE_PARENT"
   --implementer-env-hint "$ENV_HINT"
 )
