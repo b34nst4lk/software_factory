@@ -1,28 +1,49 @@
 ---
 id: impl-01
-decision: "25 — two-loop architecture (inner TDD loop + final 6-gate verifier)"
-title: "config (3 models + effort) + herdr port (per-unit workspace label, pane_log verb)"
-scope_files: [factory/orchestrator/config.py, factory/orchestrator/herdr.py]
+decision: 25 — two-loop architecture (inner TDD loop + final 6-gate verifier)
+title: config (3 models + effort) + herdr port (per-unit workspace label, pane_log
+  verb)
+scope_files:
+- factory/orchestrator/config.py
+- factory/orchestrator/herdr.py
 acceptance:
-  - story: "As the orchestrator, I bind three agent models per unit"
-    behaviors:
-      - { id: B1, behavior: "config.default() exposes implementer_model='deepseek-v4-flash:cloud', inner_verifier_model='deepseek-v4-pro:cloud', final_verifier_model='glm-5.3-flash:cloud'", outcome: success }
-      - { id: B2, behavior: "config carries an effort setting for the implementer ('low') and the final verifier ('low'/'high'/'max')", outcome: success }
-      - { id: B3, behavior: "config.default() no longer exposes a single verifier_model (replaced by inner/final)", outcome: success }
-  - story: "As the orchestrator, I log actions to a shell pane"
-    behaviors:
-      - { id: B4, behavior: "HerdrPort declares pane_log(pane_id, line) -> None", outcome: success }
-      - { id: B5, behavior: "the real Herdr.pane_log sends `herdr send-keys` to append the line to the pane", outcome: success }
-      - { id: B6, behavior: "MockHerdr.pane_log records the (pane_id, line) pair for test assertions", outcome: success }
+- story: As the orchestrator, I bind three agent models per unit
+  behaviors:
+  - id: B1
+    behavior: config.default() exposes implementer_model='deepseek-v4-flash:cloud',
+      inner_verifier_model='deepseek-v4-pro:cloud', final_verifier_model='glm-5.3-flash:cloud'
+    outcome: success
+  - id: B2
+    behavior: config carries an effort setting for the implementer ('low') and the
+      final verifier ('low'/'high'/'max')
+    outcome: success
+  - id: B3
+    behavior: config.default() no longer exposes a single verifier_model (replaced
+      by inner/final)
+    outcome: success
+- story: As the orchestrator, I log actions to a shell pane
+  behaviors:
+  - id: B4
+    behavior: HerdrPort declares pane_log(pane_id, line) -> None
+    outcome: success
+  - id: B5
+    behavior: the real Herdr.pane_log sends `herdr send-keys` to append the line to
+      the pane
+    outcome: success
+  - id: B6
+    behavior: MockHerdr.pane_log records the (pane_id, line) pair for test assertions
+    outcome: success
 verify:
-  - "behaviors captured by tests; tests map 1:1 to acceptance.behaviors"
-  - "config tests assert the three model ids + effort fields; the old verifier_model field is gone"
-  - "herdr tests assert pane_log argv construction (real) and recording (mock) without invoking the binary"
+- behaviors captured by tests; tests map 1:1 to acceptance.behaviors
+- config tests assert the three model ids + effort fields; the old verifier_model
+  field is gone
+- herdr tests assert pane_log argv construction (real) and recording (mock) without
+  invoking the binary
 model: deepseek-v4-flash:cloud
 depends_on: []
-status: open
-cycle: 0
-last_verdict: ""
+status: in_progress
+cycle: 1
+last_verdict: FAIL
 ---
 Extend the two seams the two-loop build rests on. Stay within `factory/orchestrator/config.py`
 and `factory/orchestrator/herdr.py` only.
