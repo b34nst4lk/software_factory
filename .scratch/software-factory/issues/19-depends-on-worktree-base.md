@@ -1,9 +1,10 @@
 # 19 — depends_on doesn't propagate dependency code to a dependent's worktree
 
 Type: task
-Status: open
+Status: resolved
 Blocked by:
 Found by: 15 build (dogfood). Adjacent to 16/17.
+Resolved: 2026-08-27 (grilling). No code fix — constraint only (Q2a).
 
 ## Question
 
@@ -42,4 +43,38 @@ base selection, not just topo start-ordering.
 
 ## Answer
 
-<!-- filled when resolved -->
+**No code fix — constraint only (Q2a).** The 15-build framing ("worktrees ignore
+`depends_on`") was incomplete. The current code already gates dependents on dep **merge**,
+not just verifier-pass:
+
+- `_on_done` (`--pr-stage on`) sets status `AWAITING_PR` (NOT added to `done`).
+- `_poll_prs` adds to `done` only **after** the PR merges to `main`.
+- `_sweep` starts a dependent only when `all(d in done for d in depends_on)`.
+
+So with `--pr-stage on`, a dependent's `worktree_add` runs only after all its deps are
+merged to `main` — the worktree branches from a `main` that already contains the deps'
+code. **Bug 19 does not bite with `--pr-stage on`.** It bites only on **throwaway smoke**
+(`--pr-stage off`), where `_on_done` adds to `done` on verifier-pass (no merge) and the
+dependent branches from `main` before the dep lands — the 15-build `parse_trailer`
+duplication path.
+
+**Resolution (Q2a — constraint, no code):**
+- Throwaway smoke (`--pr-stage off`) is for **single-unit** smokes (e.g. decision 08).
+- **Multi-unit dep chains require `--pr-stage on`** — which already propagates deps via
+  merge-to-main before dependents start.
+- 25 (a real build, 5 units with a dep chain) runs `--pr-stage on` → no 19.
+- Optional later guard: warn/stop if `--pr-stage off` is used with a unit that has
+  non-empty `depends_on`. Not built now; the constraint is documented.
+
+**Candidate (b) (local-merge-to-main on `--pr-stage off`) rejected for now** — it would
+enable fast dogfood without per-unit GitHub approval, but 23 (auto-merge after Sourcery,
+dropping GitHub APPROVED) is the intended path for that; 19 should not pre-empt it. If fast
+local dogfood of dep chains is wanted before 23 lands, reopen and take Q2b.
+
+**05 Q4a amendment (already true in code):** a dependent starts only after all its deps
+are **merged to `main`** (PR or local squash), not merely verifier-passed. Pipelining
+across independent units (no shared deps) is unchanged.
+
+**Known limitation:** `--pr-stage on` needs the human to approve each dep PR on GitHub
+(the 06 merge gate = human APPROVED + Sourcery clean; 23, which drops APPROVED, is not
+built). For 25 that is several human GitHub approvals in dependency order.
