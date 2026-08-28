@@ -62,7 +62,23 @@ class Gh:
     def api_reviews(self, repo: str, pr_num: int) -> list[dict[str, str]]:
         out, _ = self._cmd(["api", f"repos/{repo}/pulls/{pr_num}/reviews"])
         data = json.loads(out)
-        return data if isinstance(data, list) else []
+        if not isinstance(data, list):
+            return []
+        # GitHub's review `user` is an object with a `login` field, not a string.
+        # Normalize to the login string here so downstream consumers (merge_gate
+        # dict keys, _format_comments) get a hashable, readable value (bug: the
+        # raw dict crashed merge_gate as an unhashable key).
+        norm: list[dict[str, str]] = []
+        for r in data:
+            u = r.get("user")
+            if isinstance(u, dict):
+                login = str(u.get("login", ""))
+            elif u is None:
+                login = ""
+            else:
+                login = str(u)
+            norm.append({"user": login, "state": str(r.get("state", ""))})
+        return norm
 
     def pr_merge(self, pr_num: int, *, squash: bool) -> None:
         args = ["pr", "merge", str(pr_num)]

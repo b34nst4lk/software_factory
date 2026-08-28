@@ -37,7 +37,7 @@ class Config:
     pr_poll_cadence_s: int = PR_POLL_CADENCE_S
     sourcery_timeout_s: int = SOURCERY_TIMEOUT_S
     read_lines: int = READ_LINES
-    sourcery_reviewer_login: str = "sourcery-ai"
+    sourcery_reviewer_login: str = "sourcery-ai[bot]"
     human_login: str = "human-reviewer"
     gh_repo: str = ""
     worktree_parent: str = ".."

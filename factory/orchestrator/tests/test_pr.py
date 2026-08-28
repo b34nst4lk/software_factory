@@ -29,11 +29,47 @@ def test_api_reviews_builds_argv_and_returns_parsed_reviews():
     def runner(argv: list[str]) -> tuple[str, int]:
         seen.extend(argv)
         assert argv[:4] == ["gh", "api", "repos/o/r/pulls/12/reviews"]
-        return (json.dumps([{"user": "sourcery-ai", "state": "APPROVED"}]), 0)
+        # GitHub's review `user` is an object with a `login` field, not a string.
+        return (
+            json.dumps([{"user": {"login": "sourcery-ai[bot]"}, "state": "APPROVED"}]),
+            0,
+        )
 
     g = pr.Gh(runner=runner)
     reviews = g.api_reviews("o/r", 12)
-    assert reviews == [{"user": "sourcery-ai", "state": "APPROVED"}]
+    assert reviews == [{"user": "sourcery-ai[bot]", "state": "APPROVED"}]
+
+
+def test_api_reviews_normalizes_user_object_to_login():
+    # Regression (the 25-build crash): the raw GitHub review `user` is a full
+    # object; merge_gate used it as a dict key -> TypeError (unhashable). api_reviews
+    # must normalize `user` to the login string.
+    raw_review = {
+        "user": {"login": "sourcery-ai[bot]", "id": 58596630, "type": "Bot"},
+        "state": "COMMENTED",
+        "body": "some review body",
+    }
+
+    def runner(argv: list[str]) -> tuple[str, int]:
+        return (json.dumps([raw_review]), 0)
+
+    g = pr.Gh(runner=runner)
+    reviews = g.api_reviews("o/r", 1)
+    assert reviews == [{"user": "sourcery-ai[bot]", "state": "COMMENTED"}]
+    # the normalized user is a hashable string (usable as a dict key by merge_gate)
+    assert isinstance(reviews[0]["user"], str)
+
+
+def test_api_reviews_handles_missing_user():
+    def runner(argv: list[str]) -> tuple[str, int]:
+        return (json.dumps([{"state": "COMMENTED"}, {"user": None, "state": "APPROVED"}]), 0)
+
+    g = pr.Gh(runner=runner)
+    reviews = g.api_reviews("o/r", 1)
+    assert reviews == [
+        {"user": "", "state": "COMMENTED"},
+        {"user": "", "state": "APPROVED"},
+    ]
 
 
 def test_pr_merge_builds_squash_argv():
