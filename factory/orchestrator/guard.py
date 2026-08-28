@@ -1,6 +1,7 @@
 """Guard util — the spine's git-as-state integrity backstop.
 
-Two rules (ticket 05 Q2 / ticket 09 Invariants / decision 17):
+Three rules (ticket 05 Q2 / ticket 09 Invariants / decision 17; ticket 02 /
+decision 14 & 25):
   1. impl-ticket frontmatter changes are **value-only**: the frontmatter key set is
      unchanged and the prose body is unchanged. Only values of `status` / `cycle` /
      `last_verdict` may move. A new key, a removed key, or a body edit is a violation.
@@ -9,9 +10,13 @@ Two rules (ticket 05 Q2 / ticket 09 Invariants / decision 17):
      ticket itself are the only governed paths. A hard denylist (`.verdict.yaml`,
      `.verdict.yml`, `.venv`, `*.db`, `__pycache__`) rejects runtime-artifact cruft
      regardless of `scope_files`. `run.log` is no longer special-cased.
+  3. tests map to behaviors and behaviors map to tests: the impl ticket's
+     `acceptance.behaviors` ids must each be cited by a test in `scope_files`, every
+     `# maps to: <id>` must cite a real id, and every test function must carry a
+     `# maps to:`. A test citing several ids is a non-blocking warning.
 
 The pure checks below are the test seam. :func:`main` is the pre-commit entrypoint:
-it reads staged file content via ``git`` and applies the two rules to staged impl
+it reads staged file content via ``git`` and applies the three rules to staged impl
 files (``.../impl/*.md``) and the staged path set.
 """
 
@@ -30,6 +35,13 @@ import yaml
 _IMPL_RE = re.compile(r"(^|/)impl/[^/]+\.md$")
 _FM_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n(.*)\Z", re.DOTALL)
 
+# A test file: basename `test_*.py` or `*_test.py` (with an optional directory path).
+_TEST_FILE_RE = re.compile(r"(^|/)(test_[^/]*\.py|[^/]*_test\.py)$")
+# A `def test_*` function definition at module/class scope (column 0).
+_DEF_TEST_RE = re.compile(r"^def\s+(test_\w+)", re.MULTILINE)
+# A `# maps to: <id>[, <id>...]` comment.
+_MAPS_TO_RE = re.compile(r"#\s*maps to:\s*([^#\n]+)")
+
 # Runtime-artifact cruft that must never be committed, regardless of scope_files.
 # Suffix matches (path ends with) and path-component matches (a path segment equals).
 _DENY_SUFFIXES = (".verdict.yaml", ".verdict.yml", ".db")
@@ -43,6 +55,22 @@ class Violation:
     path: str
     rule: str
     detail: str
+
+
+@dataclass(frozen=True)
+class Warning:
+    """Non-blocking guard finding (rule 3 multi-behavior mapping)."""
+
+    func: str
+    ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class BehaviorMapping:
+    """One test function's `# maps to:` citations (possibly empty)."""
+
+    func: str
+    ids: tuple[str, ...]
 
 
 def split_frontmatter(text: str) -> tuple[dict[str, object] | None, str]:
@@ -102,6 +130,99 @@ def check_impl_file(before: str, after: str, path: str, *, is_new: bool) -> list
     if body_changed(before, after):
         out.append(Violation(path, "body", "prose body changed"))
     return out
+
+
+# ---- third rule: test↔behavior mapping (ticket 02 / decision 14 & 25) ----
+
+
+def _is_test_file(path: str) -> bool:
+    """True if ``path`` looks like a pytest test file."""
+    return bool(_TEST_FILE_RE.search(path))
+
+
+def behavior_ids(fm: Mapping[str, object]) -> set[str]:
+    """The set of `id` values across ``acceptance.behaviors``."""
+    ids: set[str] = set()
+    acceptance = fm.get("acceptance")
+    if not isinstance(acceptance, list):
+        return ids
+    for entry in acceptance:
+        if not isinstance(entry, dict):
+            continue
+        behaviors = entry.get("behaviors")
+        if not isinstance(behaviors, list):
+            continue
+        for b in behaviors:
+            if isinstance(b, dict) and "id" in b:
+                ids.add(str(b["id"]))
+    return ids
+
+
+def extract_test_mappings(source: str) -> list[BehaviorMapping]:
+    """Parse a test-file ``source``; one :class:`BehaviorMapping` per ``def test_*``.
+
+    Each `# maps to: <id>` line inside a test function body is attributed to the
+    enclosing function. A function with no such comment gets an empty ``ids`` tuple.
+    """
+    out: list[BehaviorMapping] = []
+    cur_func: str | None = None
+    cur_ids: list[str] = []
+    for line in source.splitlines():
+        m = _DEF_TEST_RE.match(line)
+        if m:
+            if cur_func is not None:
+                out.append(BehaviorMapping(cur_func, tuple(cur_ids)))
+            cur_func = m.group(1)
+            cur_ids = []
+            continue
+        mm = _MAPS_TO_RE.search(line)
+        if mm is not None and cur_func is not None:
+            for part in mm.group(1).split(","):
+                part = part.strip()
+                if part:
+                    cur_ids.append(part)
+    if cur_func is not None:
+        out.append(BehaviorMapping(cur_func, tuple(cur_ids)))
+    return out
+
+
+def check_behavior_mapping(
+    fm: Mapping[str, object], test_sources: Mapping[str, str], impl_path: str
+) -> tuple[list[Violation], list[Warning]]:
+    """Rule 3: enforce the test↔behavior bijection across ``test_sources``.
+
+    When no test file is present in ``scope_files`` there is nothing to map, so no
+    violation is raised (a doc-only ticket like B1 passes). Returns
+    ``(violations, warnings)``.
+    """
+    if not test_sources:
+        return [], []
+    bid_set = behavior_ids(fm)
+    violations: list[Violation] = []
+    warnings: list[Warning] = []
+    all_cited: set[str] = set()
+    for tpath, src in test_sources.items():
+        for m in extract_test_mappings(src):
+            if not m.ids:
+                violations.append(
+                    Violation(tpath, "unmapped-test", f"{m.func} has no '# maps to:' comment")
+                )
+                continue
+            distinct = set(m.ids)
+            if len(distinct) > 1:
+                warnings.append(Warning(m.func, tuple(sorted(distinct))))
+            for i in m.ids:
+                all_cited.add(i)
+                if i not in bid_set:
+                    violations.append(
+                        Violation(tpath, "orphan-test", f"{m.func} cites unknown behavior id '{i}'")
+                    )
+    for bid in sorted(bid_set):
+        if bid not in all_cited:
+            violations.append(
+                Violation(impl_path, "untested-behavior", f"behavior id '{bid}' has no mapped test")
+            )
+    return violations, warnings
 
 
 def check_staged_paths(
@@ -165,12 +286,25 @@ def _index_text(path: str) -> str:
 
 
 def check_staged(paths: Iterable[str]) -> list[Violation]:
-    """Run both guard rules over an explicit list of staged paths (test seam)."""
+    """Run all three guard rules over an explicit list of staged paths (test seam).
+
+    Returns only blocking Violations; rule-3 warnings are exposed via
+    :func:`check_staged_full` for the entrypoint to report.
+    """
+    violations, _warnings = check_staged_full(paths)
+    return violations
+
+
+def check_staged_full(paths: Iterable[str]) -> tuple[list[Violation], list[Warning]]:
+    """Run all three guard rules; return ``(violations, warnings)``."""
     path_list = list(paths)
     violations: list[Violation] = []
+    warnings: list[Warning] = []
     staged_contents: dict[str, str] = {}
+    impl_path: str | None = None
     for path in path_list:
         if _IMPL_RE.search(path):
+            impl_path = path
             before = _head_text(path)
             after = _index_text(path)
             staged_contents[path] = after
@@ -178,7 +312,21 @@ def check_staged(paths: Iterable[str]) -> list[Violation]:
             # only modifications of an existing ticket are value-only-constrained.
             violations.extend(check_impl_file(before, after, path, is_new=before == ""))
     violations.extend(check_staged_paths(path_list, staged_contents))
-    return violations
+
+    if impl_path is not None:
+        fm, _ = split_frontmatter(staged_contents.get(impl_path, ""))
+        if fm is not None:
+            scope = fm.get("scope_files")
+            test_sources: dict[str, str] = {}
+            if isinstance(scope, list):
+                for sp in scope:
+                    sp = str(sp)
+                    if _is_test_file(sp) and sp in staged_contents:
+                        test_sources[sp] = staged_contents[sp]
+            v, w = check_behavior_mapping(fm, test_sources, impl_path)
+            violations.extend(v)
+            warnings.extend(w)
+    return violations, warnings
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -186,9 +334,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
     paths = argv if argv else staged_paths()
-    violations = check_staged(paths)
+    violations, warnings = check_staged_full(paths)
     for v in violations:
         print(f"guard: {v.path}: {v.rule}: {v.detail}", file=sys.stderr)
+    for w in warnings:
+        print(
+            f"guard: warn: {w.func}: maps to {len(w.ids)} behaviors: {', '.join(w.ids)}",
+            file=sys.stderr,
+        )
     return 1 if violations else 0
 
 
