@@ -42,7 +42,7 @@ verify:
 model: deepseek-v4-flash:cloud
 depends_on: []
 status: in_progress
-cycle: 1
+cycle: 2
 last_verdict: FAIL
 ---
 Extend the two seams the two-loop build rests on. Stay within `factory/orchestrator/config.py`
