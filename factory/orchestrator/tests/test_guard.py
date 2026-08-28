@@ -188,3 +188,40 @@ def test_run_log_rejected_as_non_governed():
     contents = _contents(factory_greet_py="x\n", **{"run.log": "boot\n"})
     v = guard.check_staged_paths(paths, contents)
     assert any(x.path == "run.log" and x.rule == "denylist" for x in v)
+
+
+# ---- bug #26: publish (multiple new impl tickets) vs per-cycle commit ----
+
+IMPL2_PATH = ".scratch/sf/impl/02-wave.md"
+IMPL2 = (
+    '---\nid: impl-02\nstatus: open\ncycle: 0\nlast_verdict: ""\n'
+    "scope_files: [factory/wave.py]\n---\nImplement wave.\n"
+)
+
+
+def test_publish_multiple_impl_tickets_not_scope_checked():
+    # Regression (bug #26): a publish stages several new impl tickets (with their
+    # own scope_files) plus the map/issues sync. It is not a per-cycle commit, so the
+    # governed-set rule is skipped — only the denylist applies. (A per-cycle commit
+    # stages exactly one impl ticket.)
+    paths = [IMPL_PATH, IMPL2_PATH, ".scratch/sf/map.md"]
+    contents = _contents(impl=IMPL, **{IMPL2_PATH: IMPL2, ".scratch/sf/map.md": "# map\n"})
+    assert guard.check_staged_paths(paths, contents) == []
+
+
+def test_publish_denylist_still_applies():
+    # maps to: even on a publish (≥2 impl tickets), the denylist still rejects a
+    # runtime-artifact path.
+    paths = [IMPL_PATH, IMPL2_PATH, ".verdict.yaml"]
+    contents = _contents(impl=IMPL, **{IMPL2_PATH: IMPL2, ".verdict.yaml": "overall: PASS\n"})
+    v = guard.check_staged_paths(paths, contents)
+    assert len(v) == 1 and v[0].path == ".verdict.yaml" and v[0].rule == "denylist"
+
+
+def test_single_impl_ticket_still_governed():
+    # maps to: a single impl ticket + an out-of-scope file is still rejected — the
+    # count signal (≥2 = publish) does not relax the per-cycle rule for one ticket.
+    paths = [IMPL_PATH, "factory/greet.py", "factory/other.py"]
+    contents = _contents(factory_greet_py="x\n", factory_other_py="x\n")
+    v = guard.check_staged_paths(paths, contents)
+    assert len(v) == 1 and v[0].path == "factory/other.py" and v[0].rule == "scope"

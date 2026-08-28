@@ -115,7 +115,14 @@ def check_staged_paths(
     paths = list(staged_paths)
     violations: list[Violation] = []
 
-    impl_ticket = next((p for p in paths if _IMPL_RE.search(p)), None)
+    impl_paths = [p for p in paths if _IMPL_RE.search(p)]
+    impl_ticket = impl_paths[0] if impl_paths else None
+    # Bug #26: the governed-set rule applies to per-cycle commits, which stage exactly
+    # one impl ticket (the orchestrator's commit_cycle stages {impl-ticket} ∪ scope_files).
+    # A publish (to-tickets authoring multiple new units) stages several impl tickets at
+    # once; it is not a per-cycle commit, so the governed-set rule is skipped for it —
+    # only the denylist applies. A manual commit (no impl ticket) is also skipped.
+    is_per_cycle = len(impl_paths) == 1
     governed: set[str] = set()
     if impl_ticket is not None:
         governed.add(impl_ticket)
@@ -128,10 +135,10 @@ def check_staged_paths(
     for path in paths:
         if _denied(path):
             violations.append(Violation(path, "denylist", "path matches runtime-artifact denylist"))
-        elif impl_ticket is not None and path not in governed:
-            # The governed-set rule applies only to per-cycle commits (an impl ticket is
-            # staged). Other commits (manual edits to the map, source, docs) are not
-            # per-cycle commits and are allowed, subject only to the denylist.
+        elif is_per_cycle and path not in governed:
+            # Per-cycle commits may stage only {impl-ticket} ∪ scope_files; anything
+            # else is out of scope. Publishes (≥2 impl tickets) and manual commits
+            # (0 impl tickets) are not scope-checked (denylist only).
             violations.append(Violation(path, "scope", "path not in {impl-ticket} ∪ scope_files"))
     return violations
 
