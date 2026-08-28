@@ -34,6 +34,7 @@ class HerdrPort(Protocol):
     def agent_last_message(self, name: str) -> str: ...
     def agent_wait(self, name: str, *, until: str, timeout_ms: int) -> None: ...
     def report_metadata(self, pane_id: str, summary: str) -> None: ...
+    def pane_log(self, pane_id: str, line: str) -> None: ...
 
 
 Runner = Callable[[list[str]], tuple[str, int]]
@@ -175,6 +176,10 @@ class Herdr:
             ]
         )
 
+    def pane_log(self, pane_id: str, line: str) -> None:
+        """Append a one-way log line to a shell pane via `herdr send-keys`."""
+        self._cmd(["send-keys", pane_id, line])
+
 
 class MockHerdr:
     """Deterministic herdr stub. Feed canned reads; prompts/metadata are recorded."""
@@ -186,6 +191,7 @@ class MockHerdr:
         self._started: dict[str, tuple[str, str]] = {}
         self.prompts: dict[str, list[str]] = {}
         self.metadata: list[tuple[str, str]] = []
+        self.pane_logs: list[tuple[str, str]] = []
 
     def _pane(self) -> str:
         self._next_pane += 1
@@ -230,6 +236,9 @@ class MockHerdr:
 
     def report_metadata(self, pane_id: str, summary: str) -> None:
         self.metadata.append((pane_id, summary))
+
+    def pane_log(self, pane_id: str, line: str) -> None:
+        self.pane_logs.append((pane_id, line))
 
     def pane_for(self, name: str) -> str:
         return self._started[name][0]

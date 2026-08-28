@@ -10,7 +10,8 @@ import os
 from dataclasses import dataclass, replace
 
 IMPLEMENTER_MODEL = "deepseek-v4-flash:cloud"
-VERIFIER_MODEL = "qwen3.5:cloud"
+INNER_VERIFIER_MODEL = "deepseek-v4-pro:cloud"
+FINAL_VERIFIER_MODEL = "glm-5.3-flash:cloud"
 
 DEFAULT_CYCLE_CAP = 5
 PROMPT_TIMEOUT_MS = 600_000  # 10 min per worker turn
@@ -28,7 +29,10 @@ class Config:
     effort: str
     impl_glob: str
     implementer_model: str = IMPLEMENTER_MODEL
-    verifier_model: str = VERIFIER_MODEL
+    inner_verifier_model: str = INNER_VERIFIER_MODEL
+    final_verifier_model: str = FINAL_VERIFIER_MODEL
+    implementer_effort: str = "low"  # low/high/max; runtime honoring is a build-time fact
+    final_verifier_effort: str = "low"  # low/high/max; config only carries the value
     cycle_cap: int = DEFAULT_CYCLE_CAP
     no_approve: bool = False
     mock: bool = False
