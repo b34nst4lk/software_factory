@@ -41,9 +41,9 @@ verify:
   invoking the binary
 model: deepseek-v4-flash:cloud
 depends_on: []
-status: in_progress
-cycle: 2
-last_verdict: FAIL
+status: done
+cycle: 3
+last_verdict: PASS
 ---
 Extend the two seams the two-loop build rests on. Stay within `factory/orchestrator/config.py`
 and `factory/orchestrator/herdr.py` only.
