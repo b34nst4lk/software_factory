@@ -88,7 +88,7 @@ scope_files: [factory/greet.py, factory/greet_test.py]
 acceptance:
   - story: "As a caller, I can <action>"
     behaviors:
-      - { behavior: "<normal behavior>",   outcome: success }
+      - { id: B1, behavior: "<normal behavior>",   outcome: success }
       - { behavior: "<edge behavior>",     outcome: failure }
 verify:
   - <what the verifier checks: one bullet per gate-relevant fact>
@@ -104,7 +104,7 @@ last_verdict: ""         # orchestrator writes the last overall verdict (PASS|FA
 
 **Value-only-mutation contract (critical).** You author **every key** with its initial value (`status: open`, `cycle: 0`, `last_verdict: ""`, `depends_on: []` when none). The orchestrator later mutates only **values** of `status`, `cycle`, `last_verdict` — it never adds keys. A Husky guard rejects any commit that adds a frontmatter key or mutates a key other than those three. So: get the full key set right now; leave `status/cycle/last_verdict` at their initials.
 
-**`acceptance` is structured behaviours.** Each entry is `{story, behaviors: [{behavior, outcome}]}` capturing the user story and its success/failure states. The implementer writes behaviour-driven + property/fuzz tests mapping to these; the verifier's 6th gate checks behaviours-are-captured and tests-map-to-behaviours. Write behaviours that are **false at the base commit** (else they grade nothing): for each, name the observation that would show it failing, and confirm it fails before the work is done.
+**`acceptance` is structured behaviours.** Each entry is `{story, behaviors: [{id, behavior, outcome}]}` capturing the user story and its success/failure states. Each behavior carries a stable `id` (e.g. `B1`) authored up front as a **value** — an added frontmatter value, not a new key, so the value-only guard still holds. Tests reference a behavior via a `# maps to: <id>` comment; the guard's test↔behavior rule (rule 3) then requires every behavior id to have a mapped test, every mapping to cite a real id, and every test function to carry a mapping. **B1 is a doc behaviour** (e.g. "the schema shows `id: B1` on a behavior entry"): the verifier checks it by reading the schema, so it has **no code test** and no `# maps to:`. The implementer writes behaviour-driven + property/fuzz tests mapping to these; the verifier's 6th gate checks behaviours-are-captured and tests-map-to-behaviours. Write behaviours that are **false at the base commit** (else they grade nothing): for each, name the observation that would show it failing, and confirm it fails before the work is done.
 
 ### The prose implementer-prompt body
 
@@ -146,7 +146,7 @@ scope_files: [factory/greet.py, factory/greet_test.py]
 acceptance:
   - story: "As a caller, I can greet someone by name"
     behaviors:
-      - { behavior: "greet('world') returns 'hello, world'", outcome: success }
+      - { id: B1, behavior: "greet('world') returns 'hello, world'", outcome: success }
       - { behavior: "greet('Ada') returns 'hello, Ada'",     outcome: success }
       - { behavior: "greet('')    returns 'hello, '",         outcome: success }
       - { behavior: "greet(None) raises TypeError",          outcome: failure }
@@ -163,16 +163,15 @@ Implement `greet(name)` in `factory/greet.py` (new file) and its tests in
 `factory/greet_test.py` (new file). Stay within these two files.
 
 Behaviours to make pass:
-- greet('world') == 'hello, world'
+- B1: greet('world') == 'hello, world'
 - greet('Ada') == 'hello, Ada'
 - greet('') == 'hello, '           # empty name is allowed
 - greet(None) raises TypeError     # resolution of the injected ambiguity
 
 Build test-first via /skill:tdd. Write a behaviour-driven test per bullet and a
 property/fuzz test (hypothesis-style) asserting greet(x) == 'hello, ' + x for
-non-empty string x. Annotate each test with the behaviour it covers
-(e.g. `# maps to: greet('world') returns 'hello, world'`) so coverage is
-checkable. Implement until green.
+non-empty string x. Annotate each test with the behaviour id it covers
+(e.g. `# maps to: B1`) so coverage is checkable. Implement until green.
 
 When test-green and within scope, stop and summarize what changed and the test results.
 ```
