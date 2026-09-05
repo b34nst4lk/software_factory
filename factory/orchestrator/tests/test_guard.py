@@ -225,3 +225,206 @@ def test_single_impl_ticket_still_governed():
     contents = _contents(factory_greet_py="x\n", factory_other_py="x\n")
     v = guard.check_staged_paths(paths, contents)
     assert len(v) == 1 and v[0].path == "factory/other.py" and v[0].rule == "scope"
+
+
+# ---- third rule: test↔behavior mapping (ticket 02 / decision 14 & 25) ----
+
+
+def _acceptance_fm(*ids: str) -> dict[str, object]:
+    behaviors = [{"id": i, "behavior": "b", "outcome": "success"} for i in ids]
+    return {"acceptance": [{"story": "s", "behaviors": behaviors}]}
+
+
+def test_behavior_ids_parses_acceptance_behaviors():
+    # maps to: B2
+    fm = _acceptance_fm("B1", "B2", "B3")
+    assert guard.behavior_ids(fm) == {"B1", "B2", "B3"}
+
+
+def test_behavior_ids_returns_empty_when_no_acceptance():
+    # maps to: B2
+    assert guard.behavior_ids({}) == set()
+
+
+def test_extract_test_mappings_collects_maps_to_per_function():
+    # maps to: B3
+    src = (
+        "def test_a():\n"
+        "    # maps to: B2\n"
+        "    assert 1\n"
+        "\n"
+        "def test_b():\n"
+        "    # maps to: B3, B4\n"
+        "    assert 2\n"
+    )
+    ms = guard.extract_test_mappings(src)
+    assert [(m.func, m.ids) for m in ms] == [
+        ("test_a", ("B2",)),
+        ("test_b", ("B3", "B4")),
+    ]
+
+
+def test_extract_test_mappings_tracks_function_without_mapping():
+    # maps to: B3
+    src = "def test_a():\n    assert 1\n"
+    ms = guard.extract_test_mappings(src)
+    assert [(m.func, m.ids) for m in ms] == [("test_a", ())]
+
+
+def test_behavior_mapping_clean_passes():
+    # maps to: B2
+    # maps to: B3
+    # maps to: B4
+    fm = _acceptance_fm("B1", "B2")
+    tests = {
+        "factory/t.py": (
+            "def test_x():\n    # maps to: B1\n    pass\n"
+            "\n"
+            "def test_y():\n    # maps to: B2\n    pass\n"
+        )
+    }
+    v, w = guard.check_behavior_mapping(fm, tests, "impl")
+    assert v == [] and w == []
+
+
+def test_orphan_test_rejected():
+    # maps to: B4
+    fm = _acceptance_fm("B1")
+    tests = {
+        "factory/t.py": (
+            "def test_x():\n    # maps to: B1\n    pass\n"
+            "\n"
+            "def test_y():\n    # maps to: B9\n    pass\n"
+        )
+    }
+    v, w = guard.check_behavior_mapping(fm, tests, "impl")
+    assert any(x.rule == "orphan-test" for x in v)
+
+
+def test_unmapped_test_rejected():
+    # maps to: B4
+    fm = _acceptance_fm("B1")
+    tests = {
+        "factory/t.py": (
+            "def test_x():\n    # maps to: B1\n    pass\n" "\n" "def test_y():\n    assert 1\n"
+        )
+    }
+    v, w = guard.check_behavior_mapping(fm, tests, "impl")
+    assert any(x.rule == "unmapped-test" for x in v)
+
+
+def test_untested_behavior_rejected():
+    # maps to: B4
+    fm = _acceptance_fm("B1", "B2")
+    tests = {"factory/t.py": "def test_x():\n    # maps to: B1\n    pass\n"}
+    v, w = guard.check_behavior_mapping(fm, tests, "impl")
+    assert any(x.rule == "untested-behavior" for x in v)
+
+
+def test_no_test_files_means_no_mapping_enforcement():
+    # maps to: B4
+    fm = _acceptance_fm("B1", "B2")
+    assert guard.check_behavior_mapping(fm, {}, "impl") == ([], [])
+
+
+def test_multi_behavior_mapping_warns_but_not_violates():
+    # maps to: B5
+    fm = _acceptance_fm("B1", "B2")
+    tests = {"factory/t.py": "def test_x():\n    # maps to: B1, B2\n    pass\n"}
+    v, w = guard.check_behavior_mapping(fm, tests, "impl")
+    assert v == []
+    assert len(w) == 1
+    assert w[0].func == "test_x"
+    assert w[0].ids == ("B1", "B2")
+
+
+# ---- PR #12 fixes (Sourcery bug-risk comments) ----
+
+
+def test_extract_test_mappings_handles_async_and_class_scoped():
+    # maps to: B3
+    src = (
+        "class TestGreet:\n"
+        "    async def test_async(self):\n"
+        "        # maps to: B1\n"
+        "        pass\n"
+        "\n"
+        "    def test_sync(self):\n"
+        "        # maps to: B2\n"
+        "        pass\n"
+    )
+    ms = guard.extract_test_mappings(src)
+    assert [(m.func, m.ids) for m in ms] == [
+        ("test_async", ("B1",)),
+        ("test_sync", ("B2",)),
+    ]
+
+
+def test_extract_test_mappings_ignores_comment_in_helper():
+    # maps to: B3
+    src = (
+        "def test_a():\n"
+        "    # maps to: B1\n"
+        "    pass\n"
+        "\n"
+        "def helper():\n"
+        "    # maps to: B2\n"
+        "    return 1\n"
+        "\n"
+        "def test_b():\n"
+        "    # maps to: B3\n"
+        "    pass\n"
+    )
+    ms = guard.extract_test_mappings(src)
+    assert [(m.func, m.ids) for m in ms] == [
+        ("test_a", ("B1",)),
+        ("test_b", ("B3",)),
+    ]
+
+
+def test_duplicate_behavior_ids_rejected():
+    # maps to: B4
+    fm = {
+        "acceptance": [
+            {"story": "s", "behaviors": [{"id": "B1", "behavior": "a", "outcome": "success"}]},
+            {"story": "s2", "behaviors": [{"id": "B1", "behavior": "b", "outcome": "success"}]},
+        ]
+    }
+    tests = {"factory/t.py": "def test_x():\n    # maps to: B1\n    pass\n"}
+    v, w = guard.check_behavior_mapping(fm, tests, "impl")
+    assert any(x.rule == "duplicate-behavior" for x in v)
+
+
+def test_duplicate_behavior_ids_rejected_even_without_tests():
+    # maps to: B4
+    fm = {"acceptance": [{"behaviors": [{"id": "B1"}, {"id": "B1"}]}]}
+    v, w = guard.check_behavior_mapping(fm, {}, "impl")
+    assert any(x.rule == "duplicate-behavior" for x in v)
+
+
+def test_check_staged_full_checks_each_impl_ticket(monkeypatch):
+    # maps to: B4
+    impl1 = (
+        '---\nid: impl-01\nstatus: open\ncycle: 0\nlast_verdict: ""\n'
+        "scope_files: [factory/t_test.py]\n"
+        "acceptance:\n  - story: s\n    behaviors:\n      - { id: B1, behavior: b, outcome: success }\n"
+        "---\nbody\n"
+    )
+    impl2 = (
+        '---\nid: impl-02\nstatus: open\ncycle: 0\nlast_verdict: ""\n'
+        "scope_files: [factory/t_test.py]\n"
+        "acceptance:\n  - story: s\n    behaviors:\n      - { id: B2, behavior: b, outcome: success }\n"
+        "---\nbody\n"
+    )
+    test_src = "def test_x():\n    # maps to: B1\n    pass\n"
+    contents = {
+        ".scratch/sf/impl/01-a.md": impl1,
+        ".scratch/sf/impl/02-b.md": impl2,
+        "factory/t_test.py": test_src,
+    }
+    monkeypatch.setattr(guard, "_head_text", lambda p: "")
+    monkeypatch.setattr(guard, "_index_text", lambda p: contents[p])
+    paths = [".scratch/sf/impl/01-a.md", ".scratch/sf/impl/02-b.md", "factory/t_test.py"]
+    v, w = guard.check_staged_full(paths)
+    # impl-01's B1 is mapped; impl-02's B2 is NOT -> untested-behavior for impl-02.
+    assert any(x.rule == "untested-behavior" and x.path == ".scratch/sf/impl/02-b.md" for x in v)
