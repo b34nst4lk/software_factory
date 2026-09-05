@@ -37,8 +37,9 @@ _FM_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n(.*)\Z", re.DOTALL)
 
 # A test file: basename `test_*.py` or `*_test.py` (with an optional directory path).
 _TEST_FILE_RE = re.compile(r"(^|/)(test_[^/]*\.py|[^/]*_test\.py)$")
-# A `def test_*` function definition at module/class scope (column 0).
-_DEF_TEST_RE = re.compile(r"^def\s+(test_\w+)", re.MULTILINE)
+# Any `def` (optionally `async`, optionally indented) — used to track Python block
+# boundaries so `# maps to:` comments are attributed to the enclosing test function.
+_DEF_RE = re.compile(r"^[ \t]*(?:async\s+)?def\s+(\w+)", re.MULTILINE)
 # A `# maps to: <id>[, <id>...]` comment.
 _MAPS_TO_RE = re.compile(r"#\s*maps to:\s*([^#\n]+)")
 
@@ -71,6 +72,16 @@ class BehaviorMapping:
 
     func: str
     ids: tuple[str, ...]
+
+
+@dataclass
+class _Scope:
+    """A function scope tracked while parsing a test file (indentation-aware)."""
+
+    indent: int
+    name: str
+    is_test: bool
+    ids: list[str]
 
 
 def split_frontmatter(text: str) -> tuple[dict[str, object] | None, str]:
@@ -158,31 +169,66 @@ def behavior_ids(fm: Mapping[str, object]) -> set[str]:
     return ids
 
 
+def duplicate_behavior_ids(fm: Mapping[str, object]) -> list[str]:
+    """Sorted list of behavior ids that appear more than once in ``acceptance``.
+
+    Duplicate ids are a ticket-authoring error: a single mapped test would otherwise
+    satisfy two distinct behaviors. They are reported as a blocking Violation, never
+    silently deduped.
+    """
+    seen: set[str] = set()
+    dups: set[str] = set()
+    acceptance = fm.get("acceptance")
+    if not isinstance(acceptance, list):
+        return []
+    for entry in acceptance:
+        if not isinstance(entry, dict):
+            continue
+        behaviors = entry.get("behaviors")
+        if not isinstance(behaviors, list):
+            continue
+        for b in behaviors:
+            if isinstance(b, dict) and "id" in b:
+                i = str(b["id"])
+                if i in seen:
+                    dups.add(i)
+                seen.add(i)
+    return sorted(dups)
+
+
 def extract_test_mappings(source: str) -> list[BehaviorMapping]:
     """Parse a test-file ``source``; one :class:`BehaviorMapping` per ``def test_*``.
 
     Each `# maps to: <id>` line inside a test function body is attributed to the
-    enclosing function. A function with no such comment gets an empty ``ids`` tuple.
+    enclosing test function. Indentation-aware block tracking means a comment inside
+    a non-test helper (or at module level) is attributed to no test. A test function
+    with no such comment gets an empty ``ids`` tuple.
     """
     out: list[BehaviorMapping] = []
-    cur_func: str | None = None
-    cur_ids: list[str] = []
+    stack: list[_Scope] = []
     for line in source.splitlines():
-        m = _DEF_TEST_RE.match(line)
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip(" \t"))
+        # Pop scopes that no longer enclose this line (indent <= their indent).
+        while stack and indent <= stack[-1].indent:
+            scope = stack.pop()
+            if scope.is_test:
+                out.append(BehaviorMapping(scope.name, tuple(scope.ids)))
+        m = _DEF_RE.match(line)
         if m:
-            if cur_func is not None:
-                out.append(BehaviorMapping(cur_func, tuple(cur_ids)))
-            cur_func = m.group(1)
-            cur_ids = []
+            name = m.group(1)
+            stack.append(_Scope(indent, name, name.startswith("test_"), []))
             continue
         mm = _MAPS_TO_RE.search(line)
-        if mm is not None and cur_func is not None:
+        if mm is not None and stack and stack[-1].is_test:
             for part in mm.group(1).split(","):
                 part = part.strip()
                 if part:
-                    cur_ids.append(part)
-    if cur_func is not None:
-        out.append(BehaviorMapping(cur_func, tuple(cur_ids)))
+                    stack[-1].ids.append(part)
+    for scope in stack:
+        if scope.is_test:
+            out.append(BehaviorMapping(scope.name, tuple(scope.ids)))
     return out
 
 
@@ -195,11 +241,20 @@ def check_behavior_mapping(
     violation is raised (a doc-only ticket like B1 passes). Returns
     ``(violations, warnings)``.
     """
-    if not test_sources:
-        return [], []
-    bid_set = behavior_ids(fm)
     violations: list[Violation] = []
     warnings: list[Warning] = []
+    # Duplicate behavior ids are a ticket-authoring error, independent of tests.
+    for dup in duplicate_behavior_ids(fm):
+        violations.append(
+            Violation(
+                impl_path,
+                "duplicate-behavior",
+                f"behavior id '{dup}' appears more than once",
+            )
+        )
+    if not test_sources:
+        return violations, warnings
+    bid_set = behavior_ids(fm)
     all_cited: set[str] = set()
     for tpath, src in test_sources.items():
         for m in extract_test_mappings(src):
@@ -295,37 +350,52 @@ def check_staged(paths: Iterable[str]) -> list[Violation]:
     return violations
 
 
+def _behavior_check(
+    impl_path: str, staged_contents: Mapping[str, str]
+) -> tuple[list[Violation], list[Warning]]:
+    """Run rule 3 for one impl ticket against its own frontmatter + scope_files."""
+    fm, _ = split_frontmatter(staged_contents.get(impl_path, ""))
+    if fm is None:
+        return [], []
+    scope = fm.get("scope_files")
+    test_sources: dict[str, str] = {}
+    if isinstance(scope, list):
+        for sp in scope:
+            sp = str(sp)
+            if _is_test_file(sp) and sp in staged_contents:
+                test_sources[sp] = staged_contents[sp]
+    return check_behavior_mapping(fm, test_sources, impl_path)
+
+
 def check_staged_full(paths: Iterable[str]) -> tuple[list[Violation], list[Warning]]:
     """Run all three guard rules; return ``(violations, warnings)``."""
     path_list = list(paths)
     violations: list[Violation] = []
     warnings: list[Warning] = []
     staged_contents: dict[str, str] = {}
-    impl_path: str | None = None
+    impl_paths: list[str] = []
     for path in path_list:
         if _IMPL_RE.search(path):
-            impl_path = path
+            impl_paths.append(path)
             before = _head_text(path)
             after = _index_text(path)
             staged_contents[path] = after
             # A new impl ticket (not in HEAD) is a to-tickets creation — allow it;
             # only modifications of an existing ticket are value-only-constrained.
             violations.extend(check_impl_file(before, after, path, is_new=before == ""))
+        else:
+            # Non-ticket staged paths (e.g. test files under scope_files) are read
+            # from the index so rule 3 can parse their `# maps to:` comments.
+            staged_contents[path] = _index_text(path)
     violations.extend(check_staged_paths(path_list, staged_contents))
 
-    if impl_path is not None:
-        fm, _ = split_frontmatter(staged_contents.get(impl_path, ""))
-        if fm is not None:
-            scope = fm.get("scope_files")
-            test_sources: dict[str, str] = {}
-            if isinstance(scope, list):
-                for sp in scope:
-                    sp = str(sp)
-                    if _is_test_file(sp) and sp in staged_contents:
-                        test_sources[sp] = staged_contents[sp]
-            v, w = check_behavior_mapping(fm, test_sources, impl_path)
-            violations.extend(v)
-            warnings.extend(w)
+    # Rule 3 runs independently for EACH staged impl ticket, using that ticket's own
+    # frontmatter and scope_files (a publish with several tickets must not let earlier
+    # tickets bypass the behavior↔test validation).
+    for impl_path in impl_paths:
+        v, w = _behavior_check(impl_path, staged_contents)
+        violations.extend(v)
+        warnings.extend(w)
     return violations, warnings
 
 
