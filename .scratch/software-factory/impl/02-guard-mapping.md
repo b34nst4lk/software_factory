@@ -1,27 +1,45 @@
 ---
 id: impl-02
-decision: "25 — two-loop architecture (inner TDD loop + final 6-gate verifier)"
-title: "guard rule 3 (test↔behavior mapping) + to-tickets behavior-id authoring"
-scope_files: [factory/orchestrator/guard.py, factory/skills/to-tickets/SKILL.md]
+decision: 25 — two-loop architecture (inner TDD loop + final 6-gate verifier)
+title: guard rule 3 (test↔behavior mapping) + to-tickets behavior-id authoring
+scope_files:
+- factory/orchestrator/guard.py
+- factory/skills/to-tickets/SKILL.md
 acceptance:
-  - story: "As the to-tickets skill, I author a stable id per behavior"
-    behaviors:
-      - { id: B1, behavior: "the to-tickets SKILL.md output schema gives each behavior an `id` (B1..Bn), authored up front", outcome: success }
-  - story: "As the guard, I enforce that tests map to real behaviors and vice-versa"
-    behaviors:
-      - { id: B2, behavior: "the guard parses an impl ticket's acceptance.behaviors into the set of behavior ids", outcome: success }
-      - { id: B3, behavior: "the guard parses test files under scope_files for `# maps to: <id>` comments, one per test function", outcome: success }
-      - { id: B4, behavior: "the guard rejects (Violation) when a behavior id has no mapped test, a maps-to cites a non-existent id, or a test function has no maps-to", outcome: success }
-      - { id: B5, behavior: "the guard reports a test that maps to more than one behavior as a non-blocking warning, not a Violation", outcome: success }
+- story: As the to-tickets skill, I author a stable id per behavior
+  behaviors:
+  - id: B1
+    behavior: the to-tickets SKILL.md output schema gives each behavior an `id` (B1..Bn),
+      authored up front
+    outcome: success
+- story: As the guard, I enforce that tests map to real behaviors and vice-versa
+  behaviors:
+  - id: B2
+    behavior: the guard parses an impl ticket's acceptance.behaviors into the set
+      of behavior ids
+    outcome: success
+  - id: B3
+    behavior: 'the guard parses test files under scope_files for `# maps to: <id>`
+      comments, one per test function'
+    outcome: success
+  - id: B4
+    behavior: the guard rejects (Violation) when a behavior id has no mapped test,
+      a maps-to cites a non-existent id, or a test function has no maps-to
+    outcome: success
+  - id: B5
+    behavior: the guard reports a test that maps to more than one behavior as a non-blocking
+      warning, not a Violation
+    outcome: success
 verify:
-  - "behaviors captured by tests; tests map 1:1 to acceptance.behaviors"
-  - "guard tests cover: clean mapping passes; orphan test, untested behavior, unmapped test each reject; multi-behavior mapping warns but passes"
-  - "the SKILL.md schema example shows `id: B1` on a behavior entry"
+- behaviors captured by tests; tests map 1:1 to acceptance.behaviors
+- 'guard tests cover: clean mapping passes; orphan test, untested behavior, unmapped
+  test each reject; multi-behavior mapping warns but passes'
+- 'the SKILL.md schema example shows `id: B1` on a behavior entry'
 model: deepseek-v4-flash:cloud
 depends_on: []
-status: open
-cycle: 0
-last_verdict: ""
+status: done
+cycle: 1
+last_verdict: PASS
 ---
 Add the third guard rule (test↔behavior mapping) and teach the to-tickets skill to author
 behavior ids. This is evidence (1) from decision 14, folded into 25's build because the inner
