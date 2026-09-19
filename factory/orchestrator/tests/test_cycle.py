@@ -64,7 +64,8 @@ class FakeConfig:
     prompt_timeout_ms: int = 1000
     read_lines: int = 100
     implementer_model: str = "deepseek-v4-flash:cloud"
-    verifier_model: str = "qwen3.5:cloud"
+    inner_verifier_model: str = "deepseek-v4-pro:cloud"
+    final_verifier_model: str = "glm-5.3-flash:cloud"
     effort: str = "sf"
 
 
@@ -202,13 +203,13 @@ def test_resolution_block_injected_into_both_prompts_on_resume(tmp_path):
 
 
 def test_cross_model_binding_every_cycle(tmp_path):
-    # The cycle binds implementer != verifier model via the prompt context (config).
-    # We assert the unit's model is the implementer binding and the verifier uses a
-    # different family — encoded in the config passed to run_cycle.
+    # The cycle binds implementer != final-verifier model (cross-family: deepseek vs glm).
+    # Encoded in the config passed to run_cycle; the inner verifier may share the
+    # implementer's family (backstopped by the deterministic mutation audit).
     cfg = FakeConfig()
-    assert cfg.implementer_model != cfg.verifier_model
+    assert cfg.implementer_model != cfg.final_verifier_model
     assert cfg.implementer_model.startswith("deepseek")
-    assert cfg.verifier_model.startswith("qwen")
+    assert cfg.final_verifier_model.startswith("glm")
 
 
 def test_verdict_file_takes_precedence_over_pane_text(tmp_path):

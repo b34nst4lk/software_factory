@@ -10,10 +10,19 @@ import config
 def test_default_config_has_expected_models_and_cycle_cap():
     c = config.default("/repo", "software-factory", ".scratch/software-factory/impl/*.md")
     assert c.implementer_model == "deepseek-v4-flash:cloud"
-    assert c.verifier_model == "qwen3.5:cloud"
+    assert c.inner_verifier_model == "deepseek-v4-pro:cloud"
+    assert c.final_verifier_model == "glm-5.3-flash:cloud"
+    assert c.implementer_effort == "low"
+    assert c.final_verifier_effort == "low"
     assert c.cycle_cap == 5
     assert config.FAILOVER_RETRIES == 3
     assert config.FAILOVER_BACKOFF_S == (5, 15, 45)
+
+
+def test_default_config_no_longer_exposes_single_verifier_model():
+    # maps to: B3 — the legacy single verifier_model field is gone (replaced by inner/final).
+    c = config.default("/repo", "e", "g")
+    assert not hasattr(c, "verifier_model")
 
 
 def test_with_overlays_applies_cli_flags_ignoring_none():

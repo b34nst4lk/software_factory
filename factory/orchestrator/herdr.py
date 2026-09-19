@@ -34,6 +34,8 @@ class HerdrPort(Protocol):
     def agent_last_message(self, name: str) -> str: ...
     def agent_wait(self, name: str, *, until: str, timeout_ms: int) -> None: ...
     def report_metadata(self, pane_id: str, summary: str) -> None: ...
+    def pane_log(self, pane_id: str, line: str) -> None: ...
+    def workspace_dispose(self, workspace_id: str) -> None: ...
 
 
 Runner = Callable[[list[str]], tuple[str, int]]
@@ -175,6 +177,14 @@ class Herdr:
             ]
         )
 
+    def pane_log(self, pane_id: str, line: str) -> None:
+        # One-way log: append the line to the pane's shell (no response to parse).
+        self._cmd(["send-keys", pane_id, line])
+
+    def workspace_dispose(self, workspace_id: str) -> None:
+        # Close (tear down) a unit's workspace at unit teardown (done/cancelled).
+        self._cmd(["workspace", "close", workspace_id])
+
 
 class MockHerdr:
     """Deterministic herdr stub. Feed canned reads; prompts/metadata are recorded."""
@@ -186,6 +196,11 @@ class MockHerdr:
         self._started: dict[str, tuple[str, str]] = {}
         self.prompts: dict[str, list[str]] = {}
         self.metadata: list[tuple[str, str]] = []
+        self.pane_logs: list[tuple[str, str]] = []
+        self.disposed_workspaces: list[str] = []
+        self.workspaces: list[tuple[str, str]] = []  # (cwd, label) per workspace_create
+        self.workspace_ids: list[str] = []  # returned root pane id per workspace_create
+        self.pane_splits: list[tuple[str, str, str]] = []  # (new_pane, parent, direction)
 
     def _pane(self) -> str:
         self._next_pane += 1
@@ -195,10 +210,15 @@ class MockHerdr:
         self._reads.setdefault(name, []).append(output)
 
     def workspace_create(self, cwd: str, label: str) -> str:
-        return self._pane()
+        self.workspaces.append((cwd, label))
+        pid = self._pane()
+        self.workspace_ids.append(pid)
+        return pid
 
     def pane_split(self, pane_id: str, direction: str, *, cwd: str | None = None) -> str:
-        return self._pane()
+        new = self._pane()
+        self.pane_splits.append((new, pane_id, direction))
+        return new
 
     def agent_start(self, name: str, pane_id: str, model: str, *, approve: bool = False) -> None:
         self._started[name] = (pane_id, model)
@@ -230,6 +250,12 @@ class MockHerdr:
 
     def report_metadata(self, pane_id: str, summary: str) -> None:
         self.metadata.append((pane_id, summary))
+
+    def pane_log(self, pane_id: str, line: str) -> None:
+        self.pane_logs.append((pane_id, line))
+
+    def workspace_dispose(self, workspace_id: str) -> None:
+        self.disposed_workspaces.append(workspace_id)
 
     def pane_for(self, name: str) -> str:
         return self._started[name][0]
