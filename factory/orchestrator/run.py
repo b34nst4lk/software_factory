@@ -80,6 +80,12 @@ class UnitState:
     pr_number: int | None = None
     last_outcome: str = ""
     cap_override: int | None = None
+    # one herdr space per unit (B1) + its panes (B2/B3); torn down on teardown (B4).
+    space: str = ""
+    output_pane: str = ""
+    inner_name: str = ""
+    inner_pane: str = ""
+    final_pane: str = ""
 
     @property
     def id(self) -> str:
@@ -98,7 +104,6 @@ class Orchestrator:
     on_park: Callable[[UnitState], None] | None = None
     park_poll_budget: int = 0
     sleep_fn: Callable[[float], None] = time.sleep
-    _root_pane: str = ""
     _log: list[str] = field(default_factory=list)
 
     # ---- lifecycle ----
@@ -110,7 +115,6 @@ class Orchestrator:
             for u in topo
         }
         done: set[str] = set()
-        self._root_pane = self.herdr.workspace_create(self.config.repo_path, "factory")
         safety = 0
         park_polls = 0
         while safety < 10000:
@@ -169,16 +173,45 @@ class Orchestrator:
             Path(wt_path).write_text(Path(st.unit.path).read_text())
         st.unit = dataclasses.replace(st.unit, path=wt_path)
         impl_name = st.id
-        ver_name = "ver-" + st.id.split("-")[-1]
-        impl_pane = self.herdr.pane_split(self._root_pane, "right", cwd=st.worktree)
-        ver_pane = self.herdr.pane_split(self._root_pane, "right", cwd=st.worktree)
+        inner_name = "inner-" + st.id.split("-")[-1]
+        # the final verifier keeps the "ver-NN" name so the existing single-loop cycle
+        # (cycle.run_cycle uses panes.ver_*) and its test feeds stay green; the inner
+        # verifier pane is created but idle until a later unit wires the inner loop.
+        final_name = "ver-" + st.id.split("-")[-1]
+        # one herdr space per unit, labeled by the unit id (B1).
+        st.space = self.herdr.workspace_create(st.worktree, label=st.id)
+        impl_pane = self.herdr.pane_split(st.space, "right", cwd=st.worktree)
+        inner_pane = self.herdr.pane_split(st.space, "right", cwd=st.worktree)
+        final_pane = self.herdr.pane_split(st.space, "right", cwd=st.worktree)
+        output_pane = self.herdr.pane_split(st.space, "right", cwd=st.worktree)
+        # 3 agent panes (B2) + 1 output pane that is a shell with no agent.
         self.herdr.agent_start(
             impl_name, impl_pane, self.config.implementer_model, approve=self.config.no_approve
         )
         self.herdr.agent_start(
-            ver_name, ver_pane, self.config.verifier_model, approve=self.config.no_approve
+            inner_name, inner_pane, self.config.inner_verifier_model, approve=self.config.no_approve
         )
-        st.panes = cycle.Panes(impl_name, ver_name, impl_pane, ver_pane)
+        self.herdr.agent_start(
+            final_name, final_pane, self.config.final_verifier_model, approve=self.config.no_approve
+        )
+        st.inner_name = inner_name
+        st.inner_pane = inner_pane
+        st.final_pane = final_pane
+        st.output_pane = output_pane
+        # the single-loop cycle runs against the final verifier (cycle.Panes.ver_*).
+        st.panes = cycle.Panes(impl_name, final_name, impl_pane, final_pane)
+        self._pane_log(st, f"starting implementer for {st.id}")
+
+    def _pane_log(self, st: UnitState, line: str) -> None:
+        # one-way action log to the unit's output pane (B3).
+        if st.output_pane:
+            self.herdr.pane_log(st.output_pane, line)
+
+    def _teardown(self, st: UnitState) -> None:
+        # dispose the unit's herdr space on a terminal state (B4); idempotent.
+        if st.space:
+            self.herdr.workspace_dispose(st.space)
+            st.space = ""
 
     def _worktree_unit_path(self, st: UnitState) -> str:
         rel = os.path.relpath(st.unit.path, self.config.repo_path)
@@ -207,6 +240,7 @@ class Orchestrator:
         return sha
 
     def _run_one(self, st: UnitState, done: set[str], *, resolution: str | None) -> None:
+        self._pane_log(st, f"outer cycle for {st.id}")
         result = cycle.run_cycle(
             unit=st.unit,
             config=self.config,
@@ -230,6 +264,7 @@ class Orchestrator:
             self.next_esc_number += 1
             msg = f"{st.id} BLOCKED -> escalated to {result.escalation_paths[0]}"
             self._log.append(msg)
+            self._pane_log(st, msg)
             self.herdr.report_metadata(st.panes.impl_pane, msg)
             print(msg)
             if self.on_park is not None:
@@ -244,6 +279,7 @@ class Orchestrator:
         if any(escalate.is_cancellation(a) for _, a in res):
             st.status = UnitStatus.CANCELLED
             self._log.append(f"{st.id} cancelled by resolution")
+            self._teardown(st)
             return True
         resolution = "".join(escalate.resolution_block(p, a) for p, a in res)
         self._run_one(st, done, resolution=resolution)
@@ -262,10 +298,13 @@ class Orchestrator:
             st.pr_number = pr_num
             st.status = UnitStatus.AWAITING_PR
             self._log.append(f"{st.id} done -> PR #{pr_num}")
+            self._pane_log(st, f"{st.id} done -> PR #{pr_num}")
         else:
             st.status = UnitStatus.DONE
             done.add(st.id)
             self._log.append(f"{st.id} done (pr_stage off)")
+            self._pane_log(st, f"{st.id} done (pr_stage off)")
+            self._teardown(st)
 
     # ---- PR stage ----
     def _poll_prs(self, states: dict[str, UnitState], done: set[str]) -> bool:
@@ -286,6 +325,7 @@ class Orchestrator:
                 st.status = UnitStatus.DONE
                 done.add(st.id)
                 self._log.append(f"{st.id} PR #{st.pr_number} merged")
+                self._teardown(st)
                 progressed = True
             elif gate.changes_requested_from:
                 self._pr_fix_cycle(st, reviews)
@@ -337,12 +377,14 @@ class Orchestrator:
         kind = "5-cycle backstop" if cap else "verifier verdict unparseable"
         msg = f"{st.id}: {kind}; (c)ontinue / (s)top / (w)escalate / (q)uit"
         print(msg)
+        self._pane_log(st, msg)
         if raw:
             print("raw verdict:", raw)
         choice = self.stdin().strip().lower() or "c"
         if choice == "q":
             st.status = UnitStatus.CANCELLED
             tickets.write_frontmatter_value(st.unit.path, status="cancelled")
+            self._teardown(st)
             return
         if choice == "w":
             path = escalate.create_escalation_ticket(

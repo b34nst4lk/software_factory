@@ -18,9 +18,9 @@ verify:
   - "test_run.py asserts workspace_create is called per unit with the unit-id label, 3 agent_start calls (implementer/inner/final models) + 1 output pane, and pane_log calls; gates remain on stdin"
 model: deepseek-v4-flash:cloud
 depends_on: [impl-01]
-status: open
-cycle: 0
-last_verdict: ""
+status: done
+cycle: 1
+last_verdict: PASS
 ---
 Restructure `run.py` so each work unit gets its own herdr space with four panes and an action
 log. Stay within `factory/orchestrator/run.py` only. This unit depends on impl-01 (the

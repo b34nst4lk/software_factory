@@ -350,3 +350,122 @@ def test_ref_advance_assert_fails_loudly_on_stale_ref(tmp_path):
     )
     with pytest.raises(AssertionError, match="ref-advance failed"):
         orch.run()
+
+
+# --- impl-03: one herdr space per work unit, 4 panes, output-pane logging ---
+
+
+def _run_done(tmp_path):
+    units, cfg, m, gh, gops = setup(tmp_path)
+    m.feed_read("impl-01", "c1")
+    m.feed_read("ver-01", PASS_VERDICT)
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=lambda: "c",
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
+    )
+    assert orch.run() == {"impl-01": "done"}
+    return m
+
+
+def test_per_unit_workspace_labeled_by_unit_id(tmp_path):
+    # maps to: B1 — workspace_create is called per unit, labeled by the unit id
+    # (one space per unit), not a shared "factory" workspace.
+    m = _run_done(tmp_path)
+    assert len(m.workspaces) == 1
+    _cwd, label = m.workspaces[0]
+    assert label == "impl-01"
+    assert label != "factory"  # not the old shared workspace
+
+
+def test_four_panes_three_agents_bound_to_config_models(tmp_path):
+    # maps to: B2 — 3 agent_start calls (implementer/inner/final models) + 1 output
+    # pane that is a shell with no agent.
+    m = _run_done(tmp_path)
+    # the root space pane + 4 splits = 5 panes created
+    assert len(m.pane_splits) == 4
+    # exactly 3 agents started, bound to the three config models
+    assert len(m._started) == 3
+    assert m._started["impl-01"][1] == "deepseek-v4-flash:cloud"
+    assert m._started["inner-01"][1] == "deepseek-v4-pro:cloud"
+    assert m._started["ver-01"][1] == "glm-5.3-flash:cloud"
+    # the 4th split (output pane) is NOT an agent pane
+    agent_panes = {pane for pane, _ in m._started.values()}
+    split_panes = {new for new, _parent, _dir in m.pane_splits}
+    output_panes = split_panes - agent_panes
+    assert len(output_panes) == 1  # exactly one shell output pane
+
+
+def test_actions_logged_to_output_pane(tmp_path):
+    # maps to: B3 — orchestrator actions are logged to the output pane via pane_log.
+    m = _run_done(tmp_path)
+    assert m.pane_logs  # logging happened
+    # the output pane is the one split pane with no agent
+    agent_panes = {pane for pane, _ in m._started.values()}
+    output_pane = next(new for new, _p, _d in m.pane_splits if new not in agent_panes)
+    logged_panes = {pane for pane, _ in m.pane_logs}
+    assert output_pane in logged_panes  # logs went to the output pane
+    lines = " ".join(line for _, line in m.pane_logs)
+    assert "starting implementer for impl-01" in lines  # a key seam
+    assert "outer cycle for impl-01" in lines
+
+
+def test_space_disposed_on_teardown_done(tmp_path):
+    # maps to: B4 — on unit teardown (done), the unit's space is disposed.
+    m = _run_done(tmp_path)
+    assert len(m.disposed_workspaces) == 1
+    assert m.disposed_workspaces[0] == m.workspace_ids[0]  # the space created at start
+
+
+def test_space_disposed_on_cancel(tmp_path):
+    # maps to: B4 — on unit teardown (cancelled), the unit's space is disposed.
+    units, cfg, m, gh, gops = setup(tmp_path)
+    m.feed_read("impl-01", "c1")
+    m.feed_read("ver-01", UNPARSEABLE_VERDICT)  # -> human gate -> 'q' -> cancelled
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=lambda: "q",
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
+    )
+    assert orch.run() == {"impl-01": "cancelled"}
+    assert len(m.disposed_workspaces) == 1
+
+
+def test_stdin_gates_stay_on_run_stdout(tmp_path, capsys):
+    # maps to: B5 — the stdin gates (c/s/w/m/q) remain on run.py's own stdout/stdin,
+    # not in any pane.
+    units, cfg, m, gh, gops = setup(tmp_path)
+    m.feed_read("impl-01", "c1")
+    m.feed_read("ver-01", UNPARSEABLE_VERDICT)  # -> human gate
+    calls: list[str] = []
+
+    def stdin() -> str:
+        calls.append("called")
+        return "q"
+
+    orch = run.Orchestrator(
+        config=cfg,
+        herdr=m,
+        gh=gh,
+        gitops=gops,
+        units=units,
+        stdin=stdin,
+        sleep_fn=lambda s: None,
+        park_poll_budget=3,
+    )
+    orch.run()
+    # the gate consulted run.py's stdin (not a pane)
+    assert calls == ["called"]
+    # the gate prompt was written to run.py's stdout (captured), not a pane
+    out = capsys.readouterr().out
+    assert "(c)ontinue / (s)top / (w)escalate / (q)uit" in out
